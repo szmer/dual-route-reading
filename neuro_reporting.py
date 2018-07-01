@@ -14,11 +14,12 @@ def insert_probe(place, name):
     nest.Connect(probes[name]['multimeter'], place)
     nest.Connect(place, probes[name]['spikedet'])
 
-def print_spike_scores(names, file=sys.stdout):
+def print_spike_scores(names, file=sys.stdout, label='Scores'):
     contest_probes = [(len(nest.GetStatus(probe['spikedet'], 'events')[0]['times']), name)
                       for (name, probe) in probes.items()
                       if name in names]
     contest_probes.sort(key=lambda x: x[0], reverse=True)
+    print('# '+label, file=file)
     for (spike_count, name) in contest_probes:
         print('{:>7} : {}'.format(spike_count, name), file=file)
 
@@ -42,4 +43,4 @@ def write_readings(path, spike_groups=dict()):
 
     for (label, names) in spike_groups.items():
         with open(path+label+'_spike_scores.txt', 'w+') as spike_group_file:
-            print_spike_scores(names, file=spike_group_file)
+            print_spike_scores(names, file=spike_group_file, label=label)
