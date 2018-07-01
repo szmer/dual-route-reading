@@ -14,6 +14,10 @@ def insert_probe(place, name):
     nest.Connect(probes[name]['multimeter'], place)
     nest.Connect(place, probes[name]['spikedet'])
 
+def print_params(params, file=sys.stdout):
+    for (param, val) in params.items():
+        print('{} : {}'.format(param, val), file=file)
+
 def print_spike_scores(names, file=sys.stdout, label='Scores'):
     contest_probes = [(len(nest.GetStatus(probe['spikedet'], 'events')[0]['times']), name)
                       for (name, probe) in probes.items()
@@ -23,7 +27,7 @@ def print_spike_scores(names, file=sys.stdout, label='Scores'):
     for (spike_count, name) in contest_probes:
         print('{:>7} : {}'.format(spike_count, name), file=file)
 
-def write_readings(path, spike_groups=dict()):
+def write_readings(path, params=None, spike_groups=dict()):
     path += datetime.datetime.now().strftime('_%d-%m-%Y_%H-%M-%S')+'/' # add a timestamp
     os.makedirs(path, exist_ok=False) # throw an exception if exists
     for (name, probe) in probes.items():
@@ -44,3 +48,7 @@ def write_readings(path, spike_groups=dict()):
     for (label, names) in spike_groups.items():
         with open(path+label+'_spike_scores.txt', 'w+') as spike_group_file:
             print_spike_scores(names, file=spike_group_file, label=label)
+
+    if params is not None:
+        with open(path+'_params.txt', 'w+') as params_file:
+            print_params(params, file=params_file)
