@@ -11,10 +11,17 @@ prm = {
         'dc_gen_params': { 'amplitude': 5000.0 },
         'neuron_type': 'iaf_psc_alpha',
         'letter_column_size': 40,
-        'grapheme_column_size': 20,
+        'head_column_size': 120,
+        'channel_column_size': 80,
+        'grapheme_column_size': 80,
         # Synapse specifications.
-        'letter_col_lateral_inhibition': { 'weight': -16.0 },
+        'letter_col_lateral_inhibition': { 'weight': -10.0 },
         'letter_head_excitation': { 'weight': 6.0 },
+        'head_channels_excitation': { 'weight': 16.0 },
+        'channel_lateral_inhibition': { 'weight': -10.0 },
+        'channel_grapheme_excitation': { 'weight': 16.0 },
+        'grapheme_letter_inhibition': { 'weight': -20.0 },
+        'grapheme_channel_inhibition': { 'weight': -25.0 },
         'member_letter_excitation': { 'weight': 0.0 },#4.0 },
         'absent_letter_inhibition': { 'weight': 0.0 },#-4.0 },
         'shorter_word_inhibition': { 'weight': 0.0 },#-1.2 },
@@ -63,8 +70,8 @@ def make_hypercolumn(stimuli_set, column_size):
 lexical_cols = dict([(w, nest.Create(prm['neuron_type'])) for w in prm['vocabulary']])
 letter_hypercolumns = [make_hypercolumn(prm['letters'], prm['letter_column_size'])
                        for i in range(prm['max_text_len'])]
-reading_head = make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
-grapheme_channels = [make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
+reading_head = make_hypercolumn(prm['graphemes'], prm['head_column_size'])
+grapheme_channels = [make_hypercolumn(prm['graphemes'], prm['channel_column_size'])
                      for i in range(prm['max_text_len'])]
 grapheme_hypercolumns = [make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
                          for i in range(prm['max_text_len'])]
@@ -101,14 +108,43 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
                     nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'])
                 else:
                     nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'])
+for (grapheme, grapheme_col) in reading_head.items():
+    nest.Connect(grapheme_col,
+                 sum([list(col)
+                      for channel in grapheme_channels
+                      for (label, col) in channel.items()
+                      if label == grapheme], []),
+                 syn_spec=prm['head_channels_excitation'])
+for (chan_n, chan) in enumerate(grapheme_channels):
+    for chan2 in grapheme_channels[chan_n+1:]:
+        nest.Connect(sum([list(col) for col in chan.values()], []),
+                     sum([list(col) for col in chan2.values()], []),
+                     syn_spec=prm['channel_lateral_inhibition'])
+    for (grapheme, grapheme_col) in chan.items():
+        nest.Connect(grapheme_col, grapheme_hypercolumns[chan_n][grapheme],
+                     syn_spec=prm['channel_grapheme_excitation'])
+for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
+    hypercol = sum([list(col) for col in hypercol.values()], [])
+    nest.Connect(hypercol, sum([list(col) for col in letter_hypercolumns[hcol_n].values()], []),
+                 syn_spec=prm['grapheme_letter_inhibition'])
+    nest.Connect(hypercol, sum([list(col) for col in grapheme_channels[hcol_n].values()], []),
+                 syn_spec=prm['grapheme_channel_inhibition'])
 
 # Insert probes:
 ###for (word, word_col) in lexical_cols.items():
 ###    insert_probe(word_col, word)
 for (letter, letter_col) in letter_hypercolumns[1].items():
-    insert_probe(letter_col, '2-'+letter)
+    insert_probe(letter_col, 'L2-'+letter)
 for (grapheme, grapheme_col) in reading_head.items():
     insert_probe(grapheme_col, 'head-'+grapheme)
+for (grapheme, grapheme_chan) in grapheme_channels[0].items():
+    insert_probe(grapheme_chan, 'C1-'+grapheme)
+for (grapheme, grapheme_chan) in grapheme_channels[1].items():
+    insert_probe(grapheme_chan, 'C2-'+grapheme)
+for (grapheme, grapheme_col) in grapheme_hypercolumns[0].items():
+    insert_probe(grapheme_col, 'G1-'+grapheme)
+for (grapheme, grapheme_col) in grapheme_hypercolumns[1].items():
+    insert_probe(grapheme_col, 'G2-'+grapheme)
 
 # Run the simulation, write readings.
 nest.Simulate(prm['simulation_time'])
