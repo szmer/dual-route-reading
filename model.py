@@ -17,14 +17,11 @@ prm = {
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
         'head_grapheme_excitation': { 'weight': 300.0 },
-###        'head_channels_excitation': { 'weight': 160.0 },
-###        'channel_lateral_inhibition': { 'weight': -100.0 },
-###        'channel_grapheme_excitation': { 'weight': 160.0 },
-###        'grapheme_letter_inhibition': { 'weight': -200.0 },
-###        'grapheme_channel_inhibition': { 'weight': -250.0 },
         'member_letter_excitation': { 'weight': 0.0 },#4.0 },
         'absent_letter_inhibition': { 'weight': 0.0 },#-4.0 },
         'shorter_word_inhibition': { 'weight': 0.0 },#-1.2 },
+        # weights letter -> heights are divided by (1 + (grapheme_len-1)*this)
+        'grapheme_length_damping': 0.5,
 
         'letters': ['a', 'e', 'l', 's', 't', 'u', 'z'],
         'graphemes': ['a', 'e', 'ae', 'ea', 'ee', 'l', 'll', 's', 't', 'u', 'z'],
@@ -43,6 +40,8 @@ prm = {
             'zet',
             'zest' ]
         }
+graphemes_by_lengths = [[g for g in prm['graphemes'] if len(g) == l]
+                        for l in range(max([len(g) for g in prm['graphemes']])+1)]
 
 # Parse command line args.
 if not (len(sys.argv) in [2, 3]):
@@ -69,9 +68,9 @@ def make_hypercolumn(stimuli_set, column_size):
 lexical_cols = dict([(w, nest.Create(prm['neuron_type'])) for w in prm['vocabulary']])
 letter_hypercolumns = [make_hypercolumn(prm['letters'], prm['letter_column_size'])
                        for i in range(prm['max_text_len'])]
-reading_head = make_hypercolumn(prm['graphemes'], prm['head_column_size'])
-###grapheme_channels = [make_hypercolumn(prm['graphemes'], prm['channel_column_size'])
-###                     for i in range(prm['max_text_len'])]
+# Reading heads' columns are sorted in separate lists by grapheme lengths.
+reading_head = [make_hypercolumn(size_graphemes, prm['head_column_size'])
+                for size_graphemes in graphemes_by_lengths]
 grapheme_hypercolumns = [make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
                          for i in range(prm['max_text_len'])]
 
@@ -80,6 +79,7 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
     # Turn on appropriate letter columns.
     if hcol_n < len(net_text_input) and net_text_input[hcol_n] in prm['letters']:
         nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
+
     # Letter hypercol's lateral inhibition to subsequent hypercols
     for hypercol2 in letter_hypercolumns[hcol_n+1:]:
         nest.Connect(sum([list(col) for col in hypercol.values()], []),
@@ -87,9 +87,10 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
                      syn_spec=prm['letter_col_lateral_inhibition'])
     # Letter hypercol -> the reading head
     for (letter, letter_col) in hypercol.items():
-        for (grapheme, grapheme_col) in reading_head.items():
-            if letter in grapheme:
-                nest.Connect(letter_col, grapheme_col, syn_spec=prm['letter_head_excitation'])
+        for len_graphemes in reading_head:
+            for (grapheme, grapheme_col) in len_graphemes.items():
+                if letter in grapheme:
+                    nest.Connect(letter_col, grapheme_col, syn_spec=prm['letter_head_excitation'])
     # Letter hypercol -> lexical units
     for (word, word_col) in lexical_cols.items():
         if hcol_n >= len(word):
@@ -102,58 +103,46 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
                     nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'])
                 else:
                     nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'])
-for (grapheme, grapheme_col) in reading_head.items():
-    nest.Connect(grapheme_col,
-                 sum([list(neurs)
-                      for col in grapheme_hypercolumns
-                      for (label, neurs) in col.items()
-                      if label == grapheme], []),
-                 syn_spec=prm['head_grapheme_excitation'])
-###                      for channel in grapheme_channels
-###                      for (label, col) in channel.items()
-###                      if label == grapheme], []),
-###                 syn_spec=prm['head_channels_excitation'])
-###for (chan_n, chan) in enumerate(grapheme_channels):
-###    for chan2 in grapheme_channels[chan_n+1:]:
-###        nest.Connect(sum([list(col) for col in chan.values()], []),
-###                     sum([list(col) for col in chan2.values()], []),
-###                     syn_spec=prm['channel_lateral_inhibition'])
-###    for (grapheme, grapheme_col) in chan.items():
-###        nest.Connect(grapheme_col, grapheme_hypercolumns[chan_n][grapheme],
-###                     syn_spec=prm['channel_grapheme_excitation'])
-###for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
-###    hypercol = sum([list(col) for col in hypercol.values()], [])
-###    nest.Connect(hypercol, sum([list(col) for col in letter_hypercolumns[hcol_n].values()], []),
-###                 syn_spec=prm['grapheme_letter_inhibition'])
-###    nest.Connect(hypercol, sum([list(col) for col in grapheme_channels[hcol_n].values()], []),
-###                 syn_spec=prm['grapheme_channel_inhibition'])
+for len_graphemes in reading_head:
+    for (grapheme, grapheme_col) in len_graphemes.items():
+        nest.Connect(grapheme_col,
+                     sum([list(neurs)
+                          for col in grapheme_hypercolumns
+                          for (label, neurs) in col.items()
+                          if label == grapheme], []),
+                     syn_spec=prm['head_grapheme_excitation'])
 
 # Insert probes:
 ###for (word, word_col) in lexical_cols.items():
 ###    insert_probe(word_col, word)
 for (letter, letter_col) in letter_hypercolumns[1].items():
     insert_probe(letter_col, 'L2-'+letter)
-for (grapheme, grapheme_col) in reading_head.items():
-    insert_probe(grapheme_col, 'head-'+grapheme)
-###for (grapheme, grapheme_chan) in grapheme_channels[0].items():
-###    insert_probe(grapheme_chan, 'C1-'+grapheme)
-###for (grapheme, grapheme_chan) in grapheme_channels[1].items():
-###    insert_probe(grapheme_chan, 'C2-'+grapheme)
+for len_graphemes in reading_head:
+    for (grapheme, grapheme_col) in len_graphemes.items():
+        insert_probe(grapheme_col, 'head-'+grapheme)
 for (grapheme, grapheme_col) in grapheme_hypercolumns[0].items():
     insert_probe(grapheme_col, 'G1-'+grapheme)
 for (grapheme, grapheme_col) in grapheme_hypercolumns[1].items():
     insert_probe(grapheme_col, 'G2-'+grapheme)
 
 # Run the simulation, write readings.
-for lett_n in range(prm['max_text_len']):
-    # Reassign the letter -> head weights.
-    weights_dist = stats.skewnorm(4, loc=float(lett_n)-0.7, scale=2)
-    for lett_w_n in range(prm['max_text_len']):
-        nest.SetStatus(
-            nest.GetConnections(sum([list(col) for (lett, col) in letter_hypercolumns[lett_w_n].items()], []),
-                                sum([list(col) for (lett, col) in reading_head.items()], [])),
-            { 'weight' : weights_dist.pdf(lett_w_n) * 5000 })
-    nest.Simulate(prm['letter_focus_time'])
+nest.Simulate(prm['letter_focus_time'])
+with open('wgts', 'w+') as out:
+    for lett_n in range(prm['max_text_len']):
+        # Reassign the letter -> head weights.
+        weights_dist = stats.skewnorm(4, loc=lett_n-0.7, scale=2)
+        print(lett_n, ':', file=out)
+        print(weights_dist.pdf(range(prm['max_text_len'])) * 5000, file=out)
+        for assg_lett_n in range(prm['max_text_len']):
+            assg_hypercol = sum([list(col) for (lett, col) in letter_hypercolumns[assg_lett_n].items()], [])
+            for (ln, len_graphemes) in enumerate(reading_head):
+                len_graphemes = sum([list(col) for (lett, col) in len_graphemes.items()], [])
+                if len(len_graphemes) == 0:
+                    continue
+                nest.SetStatus( nest.GetConnections(assg_hypercol, len_graphemes),
+                                { 'weight' : (  weights_dist.pdf(assg_lett_n) * 5000
+                                              / (1.0 + (ln-1)*prm['grapheme_length_damping'])) })
+        nest.Simulate(prm['letter_focus_time'])
 
 write_readings(prm['readings_path']+simulation_name,
                params=prm,
