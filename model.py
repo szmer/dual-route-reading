@@ -8,7 +8,7 @@ prm = {
         'readings_path': 'readings/',
 
         'neuron_type': 'iaf_psc_alpha',
-        'letter_neuron_params_on': { 'I_e': 376.0 }, # constant input current in pA
+        'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
         'letter_column_size': 4,
         'head_column_size': 12,
         'channel_column_size': 8,
@@ -16,12 +16,14 @@ prm = {
         # Synapse specifications.
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
-        'head_grapheme_excitation': { 'weight': 300.0 },
         'member_letter_excitation': { 'weight': 0.0 },#4.0 },
         'absent_letter_inhibition': { 'weight': 0.0 },#-4.0 },
         'shorter_word_inhibition': { 'weight': 0.0 },#-1.2 },
         # weights letter -> heights are divided by (1 + (grapheme_len-1)*this)
-        'grapheme_length_damping': 0.5,
+        'grapheme_length_damping': 0.8,
+        'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
+                                        'tau_fac': 0.0, 'weight': 300.},
+        # (the _model part in name is meant to mark that we register a separate synampse 'type')
 
         'letters': ['a', 'e', 'l', 's', 't', 'u', 'z'],
         'graphemes': ['a', 'e', 'ae', 'ea', 'ee', 'l', 'll', 's', 't', 'u', 'z'],
@@ -61,6 +63,8 @@ simulation_name = experiment_name + '_' + net_text_input
 # Build the network.
 import nest
 from neuro_reporting import insert_probe, write_readings
+
+nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
 def make_hypercolumn(stimuli_set, column_size):
     return dict([(s, nest.Create(prm['neuron_type'], column_size)) for s in stimuli_set])
@@ -110,7 +114,7 @@ for len_graphemes in reading_head:
                           for col in grapheme_hypercolumns
                           for (label, neurs) in col.items()
                           if label == grapheme], []),
-                     syn_spec=prm['head_grapheme_excitation'])
+                     syn_spec='head_grapheme_synapse_model')
 
 # Insert probes:
 ###for (word, word_col) in lexical_cols.items():
@@ -130,9 +134,9 @@ nest.Simulate(prm['letter_focus_time'])
 with open('wgts', 'w+') as out:
     for lett_n in range(prm['max_text_len']):
         # Reassign the letter -> head weights.
-        weights_dist = stats.skewnorm(4, loc=lett_n-0.7, scale=2)
+        weights_dist = stats.skewnorm(6, loc=lett_n-0.7, scale=0.67)
         print(lett_n, ':', file=out)
-        print(weights_dist.pdf(range(prm['max_text_len'])) * 5000, file=out)
+        print(weights_dist.pdf(range(prm['max_text_len'])) * 4000, file=out)
         for assg_lett_n in range(prm['max_text_len']):
             assg_hypercol = sum([list(col) for (lett, col) in letter_hypercolumns[assg_lett_n].items()], [])
             for (ln, len_graphemes) in enumerate(reading_head):
@@ -140,7 +144,7 @@ with open('wgts', 'w+') as out:
                 if len(len_graphemes) == 0:
                     continue
                 nest.SetStatus( nest.GetConnections(assg_hypercol, len_graphemes),
-                                { 'weight' : (  weights_dist.pdf(assg_lett_n) * 5000
+                                { 'weight' : (  weights_dist.pdf(assg_lett_n) * 3000
                                               / (1.0 + (ln-1)*prm['grapheme_length_damping'])) })
         nest.Simulate(prm['letter_focus_time'])
 
