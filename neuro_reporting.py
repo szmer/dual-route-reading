@@ -14,20 +14,15 @@ def insert_probe(place, name):
     nest.Connect(probes[name]['multimeter'], place)
     nest.Connect(place, probes[name]['spikedet'])
 
-def print_params(params, file=sys.stdout):
-    for (param, val) in params.items():
-        print('{} : {}'.format(param, val), file=file)
-
-def print_spike_scores(names, file=sys.stdout, label='Scores'):
+def score_spikes(names):
+    "Return a sorted list of (spike counts, names) for a list of names registered for reporting."
     contest_probes = [(len(nest.GetStatus(probe['spikedet'], 'events')[0]['times']), name)
                       for (name, probe) in probes.items()
                       if name in names]
     contest_probes.sort(key=lambda x: x[0], reverse=True)
-    print('# '+label, file=file)
-    for (spike_count, name) in contest_probes:
-        print('{:>7} : {}'.format(spike_count, name), file=file)
+    return contest_probes
 
-def write_readings(path, params=None, spike_groups=dict()):
+def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict()):
     path += datetime.datetime.now().strftime('_%d-%m-%Y_%H-%M-%S')+'/' # add a timestamp
     os.makedirs(path, exist_ok=False) # throw an exception if exists
     for (name, probe) in probes.items():
@@ -47,8 +42,18 @@ def write_readings(path, params=None, spike_groups=dict()):
 
     for (label, names) in spike_groups.items():
         with open(path+label+'_spike_scores.txt', 'w+') as spike_group_file:
-            print_spike_scores(names, file=spike_group_file, label=label)
+            contest_probes = score_spikes(names)
+            print('# '+label, file=spike_group_file)
+            for (spike_count, name) in contest_probes:
+                print('{:>7} : {}'.format(spike_count, name), file=spike_group_file)
+
+    for (label, groups) in spike_decisions.items():
+        with open(path+label+'_spike_decision.txt', 'w+') as spike_decision_file:
+            for group in groups:
+                group_probes = score_spikes(group)
+                print(group_probes[0][1], group_probes[0][0], file=spike_decision_file)
 
     if params is not None:
         with open(path+'_params.txt', 'w+') as params_file:
-            print_params(params, file=params_file)
+            for (param, val) in params.items():
+                print('{} : {}'.format(param, val), file=params_file)

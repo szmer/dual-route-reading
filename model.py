@@ -148,17 +148,19 @@ for (word, word_col) in lexical_cols.items():
 # Insert probes:
 for (word, word_col) in lexical_cols.items():
     insert_probe(word_col, word)
-for (letter, letter_col) in letter_hypercolumns[1].items():
-    insert_probe(letter_col, 'L2-'+letter)
+##for (letter, letter_col) in letter_hypercolumns[1].items():
+##    insert_probe(letter_col, 'L2-'+letter)
 for len_graphemes in reading_head:
     for (grapheme, grapheme_col) in len_graphemes.items():
         insert_probe(grapheme_col, 'head-'+grapheme)
-for (grapheme, grapheme_col) in grapheme_hypercolumns[0].items():
-    insert_probe(grapheme_col, 'G1-'+grapheme)
-for (grapheme, grapheme_col) in grapheme_hypercolumns[1].items():
-    insert_probe(grapheme_col, 'G2-'+grapheme)
-for (grapheme, grapheme_col) in grapheme_hypercolumns[2].items():
-    insert_probe(grapheme_col, 'G3-'+grapheme)
+# [Reading facility config:]
+spike_groups = { 'Head': ['head-'+g for g in prm['graphemes']], 'Words': prm['vocabulary'] }
+spike_decisions = { 'Reading': [] }
+for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
+    spike_decisions['Reading'].append([])
+    for (grapheme, grapheme_col) in hypercol.items():
+        insert_probe(grapheme_col, 'g{}-{}'.format(hcol_n, grapheme))
+        spike_decisions['Reading'][-1].append('g{}-{}'.format(hcol_n, grapheme))
 
 # Run the simulation, write readings.
 nest.Simulate(prm['letter_focus_time'])
@@ -181,4 +183,5 @@ with open('wgts', 'w+') as out:
 
 write_readings(prm['readings_path']+simulation_name,
                params=prm,
-               spike_groups={ 'Head': ['head-'+g for g in prm['graphemes']] })#, spike_groups={ 'words': prm['vocabulary'] })
+               spike_groups=spike_groups,
+               spike_decisions=spike_decisions)
