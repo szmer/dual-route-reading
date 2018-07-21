@@ -12,14 +12,17 @@ prm = {
         'letter_column_size': 4,
         'head_column_size': 12,
         'grapheme_column_size': 8,
-        'lexical_column_size': 12,
+        'lexical_column_size': 1,
+        'lexical_inhibiting_pop_size': 10,
         # Synapse specifications.
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
         'member_letter_excitation': { 'weight': 70.0 },
-        'absent_letter_inhibition': { 'weight': -40.0 },
+        'absent_letter_inhibition': { 'weight': -70.0 },
         'shorter_word_inhibition': { 'weight': -12.0 },
-        'lexical_grapheme_excitation': { 'weight': 35.0 },
+        'lexical_grapheme_excitation': { 'weight': 420.0 },
+        'lexical_inhibiting_pop_excitation': { 'weight': 200.0 },
+        'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
         # weights letter -> heights are divided by (1 + (grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
@@ -92,6 +95,7 @@ def make_hypercolumn(stimuli_set, column_size):
 
 lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
                      for w in prm['vocabulary']])
+lexical_inhibiting_population = nest.Create(prm['neuron_type'], prm['lexical_inhibiting_pop_size'])
 letter_hypercolumns = [make_hypercolumn(prm['letters'], prm['letter_column_size'])
                        for i in range(prm['max_text_len'])]
 # Reading heads' columns are sorted in separate lists by grapheme lengths.
@@ -129,6 +133,11 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
                     nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'])
                 else:
                     nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'])
+nest.Connect(sum([list(col) for (word, col) in lexical_cols.items()], []),
+             lexical_inhibiting_population, syn_spec=prm['lexical_inhibiting_pop_excitation'])
+nest.Connect(lexical_inhibiting_population,
+             sum([list(col) for (word, col) in lexical_cols.items()], []),
+             syn_spec=prm['lexical_inhibiting_pop_feedback'])
 for len_graphemes in reading_head:
     for (grapheme, grapheme_col) in len_graphemes.items():
         nest.Connect(grapheme_col,
@@ -148,6 +157,7 @@ for (word, word_col) in lexical_cols.items():
 # Insert probes:
 for (word, word_col) in lexical_cols.items():
     insert_probe(word_col, word)
+insert_probe(lexical_inhibiting_population, 'lexical_inhibition')
 ##for (letter, letter_col) in letter_hypercolumns[1].items():
 ##    insert_probe(letter_col, 'L2-'+letter)
 for len_graphemes in reading_head:
