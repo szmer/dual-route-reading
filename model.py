@@ -17,9 +17,12 @@ prm = {
         # Synapse specifications.
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
-        'member_letter_excitation': { 'weight': 70.0 },
-        'absent_letter_inhibition': { 'weight': -70.0 },
-        'shorter_word_inhibition': { 'weight': -12.0 },
+        'member_first_letter_excitation': { 'weight': 190.0 },
+        'member_letter_excitation_weight': 400.0, # make them separate so they show up in readings printouts
+        'member_letter_inhibition_weight': -400.0,
+        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
+        'absent_letter_inhibition': (lambda length: { 'weight': prm['member_letter_inhibition_weight'] / length }),
+        'shorter_word_inhibition': { 'weight': -200.0 },
         'lexical_grapheme_excitation': { 'weight': 420.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 200.0 },
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
@@ -129,10 +132,12 @@ for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter 
                          syn_spec=prm['shorter_word_inhibition'])
         else:
             for (letter, letter_col) in hypercol.items():
-                if letter in word:
-                    nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'])
+                if hcol_n == 0 and word[0] == letter:
+                    nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
+                elif letter in word:
+                    nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
                 else:
-                    nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'])
+                    nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'](len(word)))
 nest.Connect(sum([list(col) for (word, col) in lexical_cols.items()], []),
              lexical_inhibiting_population, syn_spec=prm['lexical_inhibiting_pop_excitation'])
 nest.Connect(lexical_inhibiting_population,
