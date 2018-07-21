@@ -6,6 +6,9 @@ spikedet_params = { 'withgid': True, 'withtime': True }
 
 probes = dict()
 
+def reset_reporting():
+    probes.clear()
+
 def insert_probe(place, name):
     if name in probes:
         raise KeyError('probe name {} already in use'.format(name))
@@ -21,6 +24,14 @@ def score_spikes(names):
                       if name in names]
     contest_probes.sort(key=lambda x: x[0], reverse=True)
     return contest_probes
+
+def decide_spikes(name_groups):
+    "Given a list of lists of names registered for reporting, return a list of pairs (name, spike count) with most spikes for each group."
+    decisions = []
+    for group in name_groups:
+        group_probes = score_spikes(group)
+        decisions.append((group_probes[0][1], group_probes[0][0]))
+    return decisions
 
 def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict()):
     path += datetime.datetime.now().strftime('_%d-%m-%Y_%H-%M-%S')+'/' # add a timestamp
@@ -49,9 +60,9 @@ def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(
 
     for (label, groups) in spike_decisions.items():
         with open(path+label+'_spike_decision.txt', 'w+') as spike_decision_file:
-            for group in groups:
-                group_probes = score_spikes(group)
-                print(group_probes[0][1], group_probes[0][0], file=spike_decision_file)
+            decisions = decide_spikes(groups)
+            for dec in decisions:
+                print(dec[1], dec[0], file=spike_decision_file)
 
     if params is not None:
         with open(path+'_params.txt', 'w+') as params_file:

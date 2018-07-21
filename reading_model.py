@@ -1,6 +1,8 @@
 from scipy import stats
 import nest
-from neuro_reporting import insert_probe, write_readings
+from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
+
+nest.set_verbosity('M_WARNING') # don't print detailed simulation info
 
 def decompose_word(word):
     "Get a list of graphemes in the word."
@@ -83,6 +85,8 @@ def simulate_reading(net_text_input):
 
     # Build the network.
     nest.ResetKernel()
+    reset_reporting()
+
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
@@ -182,6 +186,21 @@ def simulate_reading(net_text_input):
                                 { 'weight' : (  weights_dist.pdf(assg_lett_n) * 3000
                                               / (1.0 + (ln-1)*prm['grapheme_length_damping'])) })
         nest.Simulate(prm['letter_focus_time'])
+
+def word_read():
+    try:
+        nest.GetStatus((1,))
+    except nest.pynestkernel.NESTError:
+        raise RuntimeError('calling word_read with no simulation state available')
+
+    word_decisions = decide_spikes(spike_decisions['Reading'])
+    stop_boundary = prm['max_text_len']
+    for dec_n in range(1, len(word_decisions)):
+        if word_decisions[dec_n][1] < word_decisions[dec_n-1][1] * 0.5:
+            stop_boundary = dec_n
+            break
+
+    return ''.join([dec[0][dec[0].index('-')+1:] for dec in word_decisions[:stop_boundary]])
 
 def save_readings(simulation_name):
     write_readings(prm['readings_path']+simulation_name,
