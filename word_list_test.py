@@ -21,11 +21,13 @@ good = 0
 for (word, expected_form) in cases:
     simulate_reading(word)
     prediction = word_read()
-    observations.append((word, prediction))
+    grade = 'x'
     if prediction == expected_form:
         good += 1
+        grade = ''
+    observations.append((word, prediction, grade))
 
 print('=== Observations ===')
-for (word, prediction) in observations:
-    print(word, prediction)
+for (word, prediction, grade) in observations:
+    print(word, prediction, grade)
 print('accuracy', good / len(cases))
