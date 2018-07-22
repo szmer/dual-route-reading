@@ -26,6 +26,9 @@ def decompose_word(word):
 def make_hypercolumn(stimuli_set, column_size):
     return dict([(s, nest.Create(prm['neuron_type'], column_size)) for s in stimuli_set])
 
+def all_column_cells(hypercol):
+    return sum([list(col) for (label, col) in hypercol.items()], [])
+
 # Global config.
 prm = {
         'max_text_len': 6,
@@ -97,8 +100,11 @@ def simulate_reading(net_text_input):
     letter_hypercolumns = [make_hypercolumn(prm['letters'], prm['letter_column_size'])
                            for i in range(prm['max_text_len'])]
     # Reading heads' columns are sorted in separate lists by grapheme lengths.
-    reading_head = [make_hypercolumn(size_graphemes, prm['head_column_size'])
-                    for size_graphemes in graphemes_by_lengths]
+    reading_head_len_sorted = [make_hypercolumn(size_graphemes, prm['head_column_size'])
+                              for size_graphemes in graphemes_by_lengths]
+    reading_head = {} # a 'flat' version
+    for len_graphemes in reading_head_len_sorted:
+        reading_head.update(len_graphemes)
     grapheme_hypercolumns = [make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
                              for i in range(prm['max_text_len'])]
 
@@ -115,10 +121,9 @@ def simulate_reading(net_text_input):
                          syn_spec=prm['letter_col_lateral_inhibition'])
         # Letter hypercol -> the reading head
         for (letter, letter_col) in hypercol.items():
-            for len_graphemes in reading_head:
-                for (grapheme, grapheme_col) in len_graphemes.items():
-                    if letter in grapheme:
-                        nest.Connect(letter_col, grapheme_col, syn_spec=prm['letter_head_excitation'])
+            for (grapheme, grapheme_col) in reading_head.items():
+                if letter in grapheme:
+                    nest.Connect(letter_col, grapheme_col, syn_spec=prm['letter_head_excitation'])
         # Letter hypercol -> lexical units
         for (word, word_col) in lexical_cols.items():
             if hcol_n >= len(word):
@@ -138,14 +143,13 @@ def simulate_reading(net_text_input):
     nest.Connect(lexical_inhibiting_population,
                  sum([list(col) for (word, col) in lexical_cols.items()], []),
                  syn_spec=prm['lexical_inhibiting_pop_feedback'])
-    for len_graphemes in reading_head:
-        for (grapheme, grapheme_col) in len_graphemes.items():
-            nest.Connect(grapheme_col,
-                         sum([list(neurs)
-                              for hypercol in grapheme_hypercolumns
-                              for (label, neurs) in hypercol.items()
-                              if label == grapheme], []),
-                         syn_spec='head_grapheme_synapse_model')
+    for (grapheme, grapheme_col) in reading_head.items():
+        nest.Connect(grapheme_col,
+                     sum([list(neurs)
+                          for hypercol in grapheme_hypercolumns
+                          for (label, neurs) in hypercol.items()
+                          if label == grapheme], []),
+                     syn_spec='head_grapheme_synapse_model')
     for (word, word_col) in lexical_cols.items():
         word_decomposition = decompose_word(word)
         for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
@@ -171,9 +175,8 @@ def simulate_reading(net_text_input):
     insert_probe(lexical_inhibiting_population, 'lexical_inhibition')
     ##for (letter, letter_col) in letter_hypercolumns[1].items():
     ##    insert_probe(letter_col, 'L2-'+letter)
-    for len_graphemes in reading_head:
-        for (grapheme, grapheme_col) in len_graphemes.items():
-            insert_probe(grapheme_col, 'head-'+grapheme)
+    for (grapheme, grapheme_col) in reading_head.items():
+        insert_probe(grapheme_col, 'head-'+grapheme)
     # [Reading facility config:]
     spike_groups['Head'] = ['head-'+g for g in prm['graphemes']]
     spike_groups['Words'] = prm['vocabulary']
@@ -186,13 +189,14 @@ def simulate_reading(net_text_input):
 
     # Run the simulation, write readings.
     nest.Simulate(prm['letter_focus_time'])
-    for lett_n in range(prm['max_text_len']):
-        # Reassign the letter -> head weights.
-        weights_dist = stats.skewnorm(6, loc=lett_n-0.7, scale=0.67)
+    for step_n in range(prm['max_text_len']):
+
+        # Reassign the letter -> head weights (shifting skew normal).
+        weights_dist = stats.skewnorm(6, loc=step_n-0.7, scale=0.67)
         for assg_lett_n in range(prm['max_text_len']):
-            assg_hypercol = sum([list(col) for (lett, col) in letter_hypercolumns[assg_lett_n].items()], [])
-            for (ln, len_graphemes) in enumerate(reading_head):
-                len_graphemes = sum([list(col) for (lett, col) in len_graphemes.items()], [])
+            assg_hypercol = all_column_cells(letter_hypercolumns[assg_lett_n])
+            for (ln, len_graphemes) in enumerate(reading_head_len_sorted):
+                len_graphemes = all_column_cells(len_graphemes)
                 if len(len_graphemes) == 0:
                     continue
                 nest.SetStatus( nest.GetConnections(assg_hypercol, len_graphemes),
@@ -201,9 +205,7 @@ def simulate_reading(net_text_input):
         nest.Simulate(prm['letter_focus_time'])
 
 def word_read():
-    try:
-        nest.GetStatus((1,))
-    except nest.pynestkernel.NESTError:
+    if nest.GetKernelStatus('time') == 0.0:
         raise RuntimeError('calling word_read with no simulation state available')
 
     word_decisions = decide_spikes(spike_decisions['Reading'])
