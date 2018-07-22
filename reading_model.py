@@ -43,14 +43,16 @@ prm = {
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
         'member_first_letter_excitation': { 'weight': 190.0 },
-        'member_letter_excitation_weight': 400.0, # make them separate so they show up in readings printouts
-        'member_letter_inhibition_weight': -400.0,
+        'member_letter_excitation_weight': 540.0, # make them separate so they show up in readings printouts
+        'member_letter_inhibition_weight': -540.0,
         'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['member_letter_inhibition_weight'] / length }),
         'shorter_word_inhibition': { 'weight': -200.0 },
         'lexical_grapheme_excitation': { 'weight': 420.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 200.0 },
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
+        'grapheme_lateral_inhibition_weight': -30.0,
+        'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> heights are divided by (1 + (grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
@@ -151,6 +153,17 @@ def simulate_reading(net_text_input):
                 break
             nest.Connect(word_col, hypercol[word_decomposition[hcol_n]],
                          syn_spec=prm['lexical_grapheme_excitation'])
+    # Lateral inhibition of graphemes containing at least one same letter
+    for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
+        for (grapheme, col) in hypercol.items():
+            if hcol_n != 0:
+                for similar_grapheme in [g for g in prm['graphemes'] if len(set(g).union(set(grapheme))) > 0]:
+                    nest.Connect(col, grapheme_hypercolumns[hcol_n-1][similar_grapheme],
+                                 syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
+            if hcol_n+1 != prm['max_text_len']:
+                for similar_grapheme in [g for g in prm['graphemes'] if len(set(g).union(set(grapheme))) > 0]:
+                    nest.Connect(col, grapheme_hypercolumns[hcol_n+1][similar_grapheme],
+                                 syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
 
     # Insert probes:
     for (word, word_col) in lexical_cols.items():
