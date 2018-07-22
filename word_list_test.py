@@ -13,7 +13,9 @@ cases = [
             ('tell', 'tell'),
             ('tells', 'tells'),
             ('zet', 'zet'),
-            ('zest', 'zest')
+            ('zest', 'zest'),
+            ('lese', 'lease'),
+            ('ltte', 'lute')
         ]
 observations = []
 

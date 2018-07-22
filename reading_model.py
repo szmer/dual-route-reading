@@ -46,19 +46,20 @@ prm = {
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
         'member_first_letter_excitation': { 'weight': 190.0 },
+        'member_last_letter_excitation': { 'weight': 190.0 },
         'member_letter_excitation_weight': 540.0, # make them separate so they show up in readings printouts
         'member_letter_inhibition_weight': -540.0,
         'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['member_letter_inhibition_weight'] / length }),
         'shorter_word_inhibition': { 'weight': -200.0 },
-        'lexical_grapheme_excitation': { 'weight': 1350.0 },
+        'lexical_grapheme_excitation': { 'weight': 1400.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 650.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
         'grapheme_lateral_inhibition_weight': -25.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
-        'head_grapheme_base_weight': 1400.0,
+        'head_grapheme_base_weight': 1000.0,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
@@ -132,7 +133,9 @@ def simulate_reading(net_text_input):
                              syn_spec=prm['shorter_word_inhibition'])
             else:
                 for (letter, letter_col) in hypercol.items():
-                    if hcol_n == 0 and word[0] == letter:
+                    if hcol_n == 0 and word[hcol_n] == letter:
+                        nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
+                    if hcol_n == len(word)-1 and word[len(word)-1] == letter:
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
                     elif letter in word:
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
@@ -220,7 +223,7 @@ def word_read():
     word_decisions = decide_spikes(spike_decisions['Reading'])
     stop_boundary = prm['max_text_len']
     for dec_n in range(1, len(word_decisions)):
-        if word_decisions[dec_n][1] < word_decisions[dec_n-1][1] * 0.56:
+        if word_decisions[dec_n][1] < 50:#word_decisions[dec_n-1][1] * 0.56:
             stop_boundary = dec_n
             break
 
