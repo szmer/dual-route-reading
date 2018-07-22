@@ -17,11 +17,15 @@ cases = [
         ]
 observations = []
 
+good = 0
 for (word, expected_form) in cases:
     simulate_reading(word)
     prediction = word_read()
     observations.append((word, prediction))
+    if prediction == expected_form:
+        good += 1
 
 print('=== Observations ===')
 for (word, prediction) in observations:
     print(word, prediction)
+print('accuracy', good / len(cases))
