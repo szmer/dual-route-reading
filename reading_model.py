@@ -77,8 +77,7 @@ prm = {
             'tall',
             'tell',
             'tells',
-            'zet',
-            'zest' ]
+            'zet' ]
         }
 
 graphemes_by_lengths = [[g for g in prm['graphemes'] if len(g) == l]
