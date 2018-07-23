@@ -1,6 +1,7 @@
 from scipy import stats
 import nest
 from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
+from levenshtein import distance_within
 
 nest.set_verbosity('M_WARNING') # don't print detailed simulation info
 
@@ -51,10 +52,11 @@ prm = {
         'member_letter_inhibition_weight': -540.0,
         'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['member_letter_inhibition_weight'] / length }),
-        'shorter_word_inhibition': { 'weight': -200.0 },
+        'shorter_word_inhibition': { 'weight': -540.0 },
         'lexical_grapheme_excitation': { 'weight': 1400.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 650.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
+        'lexical_lateral_inhibition': { 'weight': -1100.0 }, # of similar words
         'grapheme_lateral_inhibition_weight': -25.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
@@ -160,6 +162,12 @@ def simulate_reading(net_text_input):
                 break
             nest.Connect(word_col, hypercol[word_decomposition[hcol_n]],
                          syn_spec=prm['lexical_grapheme_excitation'])
+        # Lateral inhibition for similar words.
+        for (word2, word2_col) in lexical_cols.items():
+            if word2 == word:
+                continue
+            if distance_within(word, word2, 2):
+                nest.Connect(word_col, word2_col, syn_spec=prm['lexical_lateral_inhibition'])
     # Lateral inhibition of graphemes containing at least one same letter
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         for (grapheme, col) in hypercol.items():
@@ -223,7 +231,7 @@ def word_read():
     word_decisions = decide_spikes(spike_decisions['Reading'])
     stop_boundary = prm['max_text_len']
     for dec_n in range(1, len(word_decisions)):
-        if word_decisions[dec_n][1] < 50:#word_decisions[dec_n-1][1] * 0.56:
+        if word_decisions[dec_n][1] < 100:#word_decisions[dec_n-1][1] * 0.56:
             stop_boundary = dec_n
             break
 
