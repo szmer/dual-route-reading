@@ -80,6 +80,7 @@ prm = {
             'tall',
             'tell',
             'tells',
+            'zest',
             'zet' ]
         }
 
