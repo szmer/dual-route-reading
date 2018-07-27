@@ -1,29 +1,16 @@
+import csv, sys
+
+if len(sys.argv) != 2:
+    print('Usage: python3 word_list_test.py FILE_WITH_CASES')
+    sys.exit(-1)
+
 from reading_model import simulate_reading, word_read
 
-cases = [
-            ('else', 'else'),
-            ('lease', 'lease'),
-            ('least', 'least'),
-            ('lute', 'lute'),
-            ('sell', 'sell'),
-            ('sells', 'sells'),
-            ('set', 'set'),
-            ('stu', 'stu'),
-            ('tall', 'tall'),
-            ('tell', 'tell'),
-            ('tells', 'tells'),
-            ('zet', 'zet'),
-            ('zest', 'zest'),
-            ('lese', 'lease'),
-            ('ltte', 'lute'),
-            ('elsee', 'else'),
-            ('sett', 'set'),
-            ('tal', 'tall'),
-            ('sels', 'sells'),
-            ('ltue', 'lute'),
-            ('tlal', 'tall'),
-            ('laese', 'lease')
-        ]
+cases = []
+with open(sys.argv[1]) as fl:
+    reader = csv.reader(fl)
+    cases = [row for row in reader if row]
+
 observations = []
 
 good = 0

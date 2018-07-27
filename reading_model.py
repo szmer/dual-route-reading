@@ -36,6 +36,7 @@ prm = {
         'max_text_len': 6,
         'letter_focus_time': 50.0,
         'readings_path': 'readings/',
+        'language_data_path': './toy_eng/',
 
         'neuron_type': 'iaf_psc_alpha',
         'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
@@ -66,27 +67,23 @@ prm = {
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
-
-        'letters': ['a', 'e', 'l', 's', 't', 'u', 'z'],
-        'graphemes': ['a', 'e', 'ae', 'ea', 'ee', 'l', 'll', 's', 't', 'u', 'z'],
-        'vocabulary': [
-            'else',
-            'lease',
-            'least',
-            'lute',
-            'sell',
-            'sells',
-            'set',
-            'stu',
-            'tall',
-            'tell',
-            'tells',
-            'zest',
-            'zet' ]
         }
 
-graphemes_by_lengths = [[g for g in prm['graphemes'] if len(g) == l]
-                        for l in range(max([len(g) for g in prm['graphemes']])+1)]
+# Read language data.
+letters, graphemes, vocabulary = None, None, dict()
+with open(prm['language_data_path']+'letters') as fl:
+    letters = fl.read().strip().split()
+with open(prm['language_data_path']+'graphemes') as fl:
+    graphemes = fl.read().strip().split()
+with open(prm['language_data_path']+'vocabulary') as fl:
+    for line in fl:
+        line = line.strip()
+        if not line[0] in vocabulary:
+            vocabulary[line[0]] = []
+        vocabulary[line[0]].append(line)
+
+graphemes_by_lengths = [[g for g in graphemes if len(g) == l]
+                        for l in range(max([len(g) for g in graphemes])+1)]
 spike_groups, spike_decisions = {}, {} # to be filled when preparing a simulation
 
 def simulate_reading(net_text_input):
@@ -100,9 +97,9 @@ def simulate_reading(net_text_input):
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
-                         for w in prm['vocabulary']])
+                         for w in vocabulary[net_text_input[0]]])
     lexical_inhibiting_population = nest.Create(prm['neuron_type'], prm['lexical_inhibiting_pop_size'])
-    letter_hypercolumns = [make_hypercolumn(prm['letters'], prm['letter_column_size'])
+    letter_hypercolumns = [make_hypercolumn(letters, prm['letter_column_size'])
                            for i in range(prm['max_text_len'])]
     # Reading heads' columns are sorted in separate lists by grapheme lengths.
     reading_head_len_sorted = [make_hypercolumn(size_graphemes, prm['head_column_size'])
@@ -110,13 +107,13 @@ def simulate_reading(net_text_input):
     reading_head = {} # a 'flat' version
     for len_graphemes in reading_head_len_sorted:
         reading_head.update(len_graphemes)
-    grapheme_hypercolumns = [make_hypercolumn(prm['graphemes'], prm['grapheme_column_size'])
+    grapheme_hypercolumns = [make_hypercolumn(graphemes, prm['grapheme_column_size'])
                              for i in range(prm['max_text_len'])]
 
     # Make connections.
     for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter -> (neuron's nest id)
         # Turn on appropriate letter columns.
-        if hcol_n < len(net_text_input) and net_text_input[hcol_n] in prm['letters']:
+        if hcol_n < len(net_text_input) and net_text_input[hcol_n] in letters:
             nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
 
         # Letter hypercol's lateral inhibition to subsequent hypercols
@@ -170,11 +167,11 @@ def simulate_reading(net_text_input):
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         for (grapheme, col) in hypercol.items():
             if hcol_n != 0:
-                for similar_grapheme in [g for g in prm['graphemes'] if len(set(g).union(set(grapheme))) > 0]:
+                for similar_grapheme in [g for g in graphemes if len(set(g).union(set(grapheme))) > 0]:
                     nest.Connect(col, grapheme_hypercolumns[hcol_n-1][similar_grapheme],
                                  syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
             if hcol_n+1 != prm['max_text_len']:
-                for similar_grapheme in [g for g in prm['graphemes'] if len(set(g).union(set(grapheme))) > 0]:
+                for similar_grapheme in [g for g in graphemes if len(set(g).union(set(grapheme))) > 0]:
                     nest.Connect(col, grapheme_hypercolumns[hcol_n+1][similar_grapheme],
                                  syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
 
@@ -187,8 +184,8 @@ def simulate_reading(net_text_input):
     for (grapheme, grapheme_col) in reading_head.items():
         insert_probe(grapheme_col, 'head-'+grapheme)
     # [Reading facility config:]
-    spike_groups['Head'] = ['head-'+g for g in prm['graphemes']]
-    spike_groups['Words'] = prm['vocabulary']
+    spike_groups['Head'] = ['head-'+g for g in graphemes]
+    spike_groups['Words'] = vocabulary[net_text_input[0]]
     spike_decisions['Reading'] = []
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         spike_decisions['Reading'].append([])
