@@ -4,6 +4,7 @@ from neuro_reporting import reset_reporting, insert_probe, write_readings, decid
 from levenshtein import distance_within
 
 nest.set_verbosity('M_WARNING') # don't print detailed simulation info
+nest.SetKernelStatus({'local_num_threads': 7})
 
 def decompose_word(word):
     "Get a list of graphemes in the word."
@@ -27,7 +28,7 @@ def decompose_word(word):
 def make_hypercolumn(stimuli_set, column_size):
     return dict([(s, nest.Create(prm['neuron_type'], column_size)) for s in stimuli_set])
 
-def all_column_cells(hypercol):
+def all_columns_cells(hypercol):
     return sum([list(col) for (label, col) in hypercol.items()], [])
 
 # Global config.
@@ -120,8 +121,7 @@ def simulate_reading(net_text_input):
 
         # Letter hypercol's lateral inhibition to subsequent hypercols
         for hypercol2 in letter_hypercolumns[hcol_n+1:]:
-            nest.Connect(sum([list(col) for col in hypercol.values()], []),
-                         sum([list(col) for col in hypercol2.values()], []),
+            nest.Connect(all_columns_cells(hypercol), all_columns_cells(hypercol2),
                          syn_spec=prm['letter_col_lateral_inhibition'])
         # Letter hypercol -> the reading head
         for (letter, letter_col) in hypercol.items():
@@ -131,9 +131,7 @@ def simulate_reading(net_text_input):
         # Letter hypercol -> lexical units
         for (word, word_col) in lexical_cols.items():
             if hcol_n >= len(word):
-                nest.Connect(sum([list(col) for col in hypercol.values()], []),
-                             word_col,
-                             syn_spec=prm['shorter_word_inhibition'])
+                nest.Connect(all_columns_cells(hypercol), word_col, syn_spec=prm['shorter_word_inhibition'])
             else:
                 for (letter, letter_col) in hypercol.items():
                     if hcol_n == 0 and word[hcol_n] == letter:
@@ -144,10 +142,9 @@ def simulate_reading(net_text_input):
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
                     else:
                         nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'](len(word)))
-    nest.Connect(sum([list(col) for (word, col) in lexical_cols.items()], []),
-                 lexical_inhibiting_population, syn_spec=prm['lexical_inhibiting_pop_excitation'])
-    nest.Connect(lexical_inhibiting_population,
-                 sum([list(col) for (word, col) in lexical_cols.items()], []),
+    nest.Connect(all_columns_cells(lexical_cols), lexical_inhibiting_population,
+                 syn_spec=prm['lexical_inhibiting_pop_excitation'])
+    nest.Connect(lexical_inhibiting_population, all_columns_cells(lexical_cols),
                  syn_spec=prm['lexical_inhibiting_pop_feedback'])
     for (grapheme, grapheme_col) in reading_head.items():
         nest.Connect(grapheme_col,
@@ -206,20 +203,20 @@ def simulate_reading(net_text_input):
         # Reassign the letter -> head weights (shifting skew normal).
         weights_dist = stats.skewnorm(6, loc=step_n-0.7, scale=0.67)
         for assg_lett_n in range(prm['max_text_len']):
-            assg_hypercol = all_column_cells(letter_hypercolumns[assg_lett_n])
+            assg_hypercol = all_columns_cells(letter_hypercolumns[assg_lett_n])
             for (ln, len_graphemes) in enumerate(reading_head_len_sorted):
-                len_graphemes = all_column_cells(len_graphemes)
+                len_graphemes = all_columns_cells(len_graphemes)
                 if len(len_graphemes) == 0:
                     continue
                 nest.SetStatus( nest.GetConnections(assg_hypercol, len_graphemes),
                                 { 'weight' : (  weights_dist.pdf(assg_lett_n) * 3000
                                               / (1.0 + (ln-1)*prm['grapheme_length_damping'])) })
-                                
+
         # Reassign the head -> grapheme weights (normal parametrized by time for each target hypercolumn).
         for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
             weights_dist = stats.norm(loc=hcol_n+1, scale=1.0) # add one because of the first "dummy" step
-            nest.SetStatus( nest.GetConnections(all_column_cells(reading_head),
-                                                all_column_cells(hypercol)),
+            nest.SetStatus( nest.GetConnections(all_columns_cells(reading_head),
+                                                all_columns_cells(hypercol)),
                             { 'weight' : weights_dist.pdf(nest.GetKernelStatus('time') / prm['letter_focus_time'])
                                          * prm['head_grapheme_base_weight'] })
 
