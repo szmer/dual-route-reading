@@ -11,7 +11,8 @@ if len(sys.argv) == 3:
     experiment_name = sys.argv[2]
 word_simulation_name = experiment_name + '_' + net_text_input
 
-from reading_model import simulate_reading, save_readings
+from reading_model import simulate_reading, save_readings, word_read
 
 simulate_reading(net_text_input)
-save_readings(word_simulation_name)
+print(word_read())
+save_readings(word_simulation_name, skip_charts=True)

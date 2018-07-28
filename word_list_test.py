@@ -9,11 +9,12 @@ from reading_model import simulate_reading, word_read
 cases = []
 with open(sys.argv[1]) as fl:
     reader = csv.reader(fl)
-    cases = [row for row in reader if row]
+    cases = [row[:2] for row in reader if row]
 
 observations = []
 
 good = 0
+print(cases[0])
 for (word, expected_form) in cases:
     simulate_reading(word)
     prediction = word_read()
@@ -22,7 +23,9 @@ for (word, expected_form) in cases:
         good += 1
         grade = ''
     observations.append((word, prediction, grade))
+    print('.', end='')
 
+print()
 print('=== Observations ===')
 for (word, prediction, grade) in observations:
     print(word, prediction, grade)

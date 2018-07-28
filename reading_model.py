@@ -3,7 +3,7 @@ import nest
 from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 from levenshtein import distance_within
 
-nest.set_verbosity('M_WARNING') # don't print detailed simulation info
+nest.set_verbosity('M_ERROR') # don't print detailed simulation info
 nest.SetKernelStatus({'local_num_threads': 7})
 
 def decompose_word(word):
@@ -33,10 +33,10 @@ def all_columns_cells(hypercol):
 
 # Global config.
 prm = {
-        'max_text_len': 6,
+        'max_text_len': 12,
         'letter_focus_time': 50.0,
         'readings_path': 'readings/',
-        'language_data_path': './toy_eng/',
+        'language_data_path': './pol/',
 
         'neuron_type': 'iaf_psc_alpha',
         'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
@@ -96,8 +96,10 @@ def simulate_reading(net_text_input):
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
+    local_vocabulary = [w for w in vocabulary[net_text_input[0]] if distance_within(w, net_text_input, 4)]
+
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
-                         for w in vocabulary[net_text_input[0]]])
+                         for w in local_vocabulary])
     lexical_inhibiting_population = nest.Create(prm['neuron_type'], prm['lexical_inhibiting_pop_size'])
     letter_hypercolumns = [make_hypercolumn(letters, prm['letter_column_size'])
                            for i in range(prm['max_text_len'])]
@@ -185,7 +187,7 @@ def simulate_reading(net_text_input):
         insert_probe(grapheme_col, 'head-'+grapheme)
     # [Reading facility config:]
     spike_groups['Head'] = ['head-'+g for g in graphemes]
-    spike_groups['Words'] = vocabulary[net_text_input[0]]
+    spike_groups['Words'] = local_vocabulary
     spike_decisions['Reading'] = []
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         spike_decisions['Reading'].append([])
@@ -232,8 +234,9 @@ def word_read():
 
     return ''.join([dec[0][dec[0].index('-')+1:] for dec in word_decisions[:stop_boundary]])
 
-def save_readings(simulation_name):
+def save_readings(simulation_name, skip_charts=False):
     write_readings(prm['readings_path']+simulation_name,
                    params=prm,
                    spike_groups=spike_groups,
-                   spike_decisions=spike_decisions)
+                   spike_decisions=spike_decisions,
+                   skip_charts=skip_charts)
