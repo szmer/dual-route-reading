@@ -16,7 +16,11 @@ observations = []
 good = 0
 print(cases[0])
 for (word, expected_form) in cases:
-    simulate_reading(word)
+    try:
+        simulate_reading(word)
+    except ValueError:
+        observations.append((word, '____', 'x'))
+        continue
     prediction = word_read()
     grade = 'x'
     if prediction == expected_form:

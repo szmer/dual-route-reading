@@ -75,12 +75,18 @@ with open(prm['language_data_path']+'letters') as fl:
     letters = fl.read().strip().split()
 with open(prm['language_data_path']+'graphemes') as fl:
     graphemes = fl.read().strip().split()
+# Vocabulary is sorted by the first letter.
+skipped_words_n = 0
 with open(prm['language_data_path']+'vocabulary') as fl:
     for line in fl:
         line = line.strip()
+        if [lett for lett in line if not lett in letters]:
+            skipped_words_n += 1
+            continue
         if not line[0] in vocabulary:
             vocabulary[line[0]] = []
         vocabulary[line[0]].append(line)
+print('{} vocabulary words skipped (unknown letters present)'.format(skipped_words_n))
 
 graphemes_by_lengths = [[g for g in graphemes if len(g) == l]
                         for l in range(max([len(g) for g in graphemes])+1)]
@@ -91,7 +97,6 @@ def simulate_reading(net_text_input):
         raise ValueError('Text input {} has to be shorter than max_text_len: {}'.format(net_text_input, prm['max_text_len']))
 
     # Build the network.
-    nest.ResetKernel()
     reset_reporting()
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
