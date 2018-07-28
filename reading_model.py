@@ -1,10 +1,11 @@
 from scipy import stats
+from unidecode import unidecode
 import nest
 from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 from levenshtein import distance_within
 
-nest.set_verbosity('M_ERROR') # don't print detailed simulation info
-nest.SetKernelStatus({'local_num_threads': 7})
+###nest.set_verbosity('M_ERROR') # don't print detailed simulation info
+nest.SetKernelStatus({'local_num_threads': 9})
 
 def decompose_word(word):
     "Get a list of graphemes in the word."
@@ -83,9 +84,10 @@ with open(prm['language_data_path']+'vocabulary') as fl:
         if [lett for lett in line if not lett in letters]:
             skipped_words_n += 1
             continue
-        if not line[0] in vocabulary:
-            vocabulary[line[0]] = []
-        vocabulary[line[0]].append(line)
+        index_lett = unidecode(line[0])
+        if not index_lett in vocabulary:
+            vocabulary[index_lett] = []
+        vocabulary[index_lett].append(line)
 print('{} vocabulary words skipped (unknown letters present)'.format(skipped_words_n))
 
 graphemes_by_lengths = [[g for g in graphemes if len(g) == l]
@@ -101,7 +103,8 @@ def simulate_reading(net_text_input):
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
-    local_vocabulary = [w for w in vocabulary[net_text_input[0]] if distance_within(w, net_text_input, 4)]
+    local_vocabulary = [w for w in vocabulary[unidecode(net_text_input[0])]
+                        if distance_within(w, net_text_input, 4)]
 
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
                          for w in local_vocabulary])
@@ -138,9 +141,9 @@ def simulate_reading(net_text_input):
                 nest.Connect(all_columns_cells(hypercol), word_col, syn_spec=prm['shorter_word_inhibition'])
             else:
                 for (letter, letter_col) in hypercol.items():
-                    if hcol_n == 0 and word[hcol_n] == letter:
+                    if hcol_n == 0 and unidecode(word[hcol_n]) == unidecode(letter):
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
-                    if hcol_n == len(word)-1 and word[len(word)-1] == letter:
+                    if hcol_n == len(word)-1 and unidecode(word[len(word)-1]) == unidecode(letter):
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
                     elif letter in word:
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
