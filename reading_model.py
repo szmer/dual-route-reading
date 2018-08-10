@@ -5,7 +5,6 @@ from neuro_reporting import reset_reporting, insert_probe, write_readings, decid
 from levenshtein import distance_within
 
 ###nest.set_verbosity('M_ERROR') # don't print detailed simulation info
-nest.SetKernelStatus({'local_num_threads': 9})
 
 def decompose_word(word):
     "Get a list of graphemes in the word."
@@ -99,6 +98,8 @@ def simulate_reading(net_text_input):
         raise ValueError('Text input {} has to be shorter than max_text_len: {}'.format(net_text_input, prm['max_text_len']))
 
     # Build the network.
+    nest.ResetKernel()
+    nest.SetKernelStatus({'local_num_threads': 9})
     reset_reporting()
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])

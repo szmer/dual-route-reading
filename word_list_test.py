@@ -14,7 +14,6 @@ with open(sys.argv[1]) as fl:
 observations = []
 
 good = 0
-print(cases[0])
 for (word, expected_form) in cases:
     try:
         simulate_reading(word)
