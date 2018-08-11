@@ -26,7 +26,7 @@ def score_spikes(names):
     return contest_probes
 
 def decide_spikes(name_groups):
-    "Given a list of lists of names registered for reporting, return a list of pairs (name, spike count) with most spikes for each group."
+    "Given a list of lists of names registered for reporting, for each list (group) return a list of pairs (name, spike count) with most spikes."
     decisions = []
     for group in name_groups:
         group_probes = score_spikes(group)

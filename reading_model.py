@@ -1,5 +1,6 @@
 from scipy import stats
 from unidecode import unidecode
+from statistics import mean
 import nest
 from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 from levenshtein import distance_within
@@ -35,8 +36,10 @@ def all_columns_cells(hypercol):
 prm = {
         'max_text_len': 12,
         'letter_focus_time': 50.0,
+        'decision_threshold': 100.0,
         'readings_path': 'readings/',
         'language_data_path': './pol/',
+        'stems_and_suffixes': True,
 
         'neuron_type': 'iaf_psc_alpha',
         'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
@@ -51,14 +54,19 @@ prm = {
         'member_first_letter_excitation': { 'weight': 190.0 },
         'member_last_letter_excitation': { 'weight': 190.0 },
         'member_letter_excitation_weight': 540.0, # make them separate so they show up in readings printouts
-        'member_letter_inhibition_weight': -540.0,
-        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
-        'absent_letter_inhibition': (lambda length: { 'weight': prm['member_letter_inhibition_weight'] / length }),
-        'shorter_word_inhibition': { 'weight': -540.0 },
-        'lexical_grapheme_excitation': { 'weight': 1400.0 },
+        'absent_letter_inhibition_weight': -160.0,
+        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*14) }),
+        'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*3) }),
+        'member_letter_excitation_suffix': (lambda length: { 'weight': 10*prm['member_letter_excitation_weight'] / (length*4) }),
+        'absent_letter_inhibition_suffix': (lambda length: { 'weight': 10*prm['absent_letter_inhibition_weight'] / (length*4) }),
+        'shorter_word_inhibition': { 'weight': -40.0 },
+        'lexical_grapheme_excitation': { 'weight': 450.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 650.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
-        'lexical_lateral_inhibition': { 'weight': -1100.0 }, # of similar words
+        'lexical_lateral_inhibition': { 'weight': -200.0 }, # of similar words
+        'suffix_lateral_inhibition': { 'weight': -1100.0 }, # of all other suffixes
+        'letter_suffix_excitation': { 'weight': 600.0 },
+        'suffix_grapheme_base_weight': 7000.0, # parametrized by distance from the estimated stem end
         'grapheme_lateral_inhibition_weight': -25.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
@@ -77,7 +85,10 @@ with open(prm['language_data_path']+'graphemes') as fl:
     graphemes = fl.read().strip().split()
 # Vocabulary is sorted by the first letter.
 skipped_words_n = 0
-with open(prm['language_data_path']+'vocabulary') as fl:
+vocabulary_path = prm['language_data_path'] + ('stems'
+                                               if prm['stems_and_suffixes']
+                                               else 'vocabulary')
+with open(vocabulary_path) as fl:
     for line in fl:
         line = line.strip()
         if [lett for lett in line if not lett in letters]:
@@ -88,9 +99,18 @@ with open(prm['language_data_path']+'vocabulary') as fl:
             vocabulary[index_lett] = []
         vocabulary[index_lett].append(line)
 print('{} vocabulary words skipped (unknown letters present)'.format(skipped_words_n))
+# Suffixes are saved only as lists of their graphemes.
+suffixes = []
+if prm['stems_and_suffixes']:
+    with open(prm['language_data_path'] + 'suffixes') as fl:
+        for line in fl:
+            suffix = line.strip()
+            suffixes.append(suffix)
 
 graphemes_by_lengths = [[g for g in graphemes if len(g) == l]
                         for l in range(max([len(g) for g in graphemes])+1)]
+
+# These have to be declared globally to be available to separate saving functions.
 spike_groups, spike_decisions = {}, {} # to be filled when preparing a simulation
 
 def simulate_reading(net_text_input):
@@ -101,6 +121,8 @@ def simulate_reading(net_text_input):
     nest.ResetKernel()
     nest.SetKernelStatus({'local_num_threads': 9})
     reset_reporting()
+    spike_groups.clear()
+    spike_decisions.clear()
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
@@ -109,6 +131,9 @@ def simulate_reading(net_text_input):
 
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
                          for w in local_vocabulary])
+    if prm['stems_and_suffixes']:
+        suffixes_cols = dict([(s, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
+                            for s in suffixes])
     lexical_inhibiting_population = nest.Create(prm['neuron_type'], prm['lexical_inhibiting_pop_size'])
     letter_hypercolumns = [make_hypercolumn(letters, prm['letter_column_size'])
                            for i in range(prm['max_text_len'])]
@@ -122,6 +147,7 @@ def simulate_reading(net_text_input):
                              for i in range(prm['max_text_len'])]
 
     # Make connections.
+    end_weight_dist = stats.norm(loc=len(net_text_input), scale=3.0) # for exciting suffixes
     for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter -> (neuron's nest id)
         # Turn on appropriate letter columns.
         if hcol_n < len(net_text_input) and net_text_input[hcol_n] in letters:
@@ -144,12 +170,24 @@ def simulate_reading(net_text_input):
                 for (letter, letter_col) in hypercol.items():
                     if hcol_n == 0 and unidecode(word[hcol_n]) == unidecode(letter):
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
-                    if hcol_n == len(word)-1 and unidecode(word[len(word)-1]) == unidecode(letter):
-                        nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
-                    elif letter in word:
+                    if (not prm['stems_and_suffixes']
+                            and hcol_n == len(word)-1 and unidecode(word[len(word)-1]) == unidecode(letter)):
+                        nest.Connect(letter_col, word_col, syn_spec=prm['member_last_letter_excitation'])
+                    elif unidecode(letter) in unidecode(word):
                         nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
                     else:
                         nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'](len(word)))
+        # Letter hypercol -> suffixes units
+        if prm['stems_and_suffixes']:
+            for (suffix, suffix_col) in suffixes_cols.items():
+                if len(net_text_input)-hcol_n <= len(suffix):
+                    for (letter, letter_col) in hypercol.items():
+                        if letter in suffix:
+                            nest.Connect(letter_col, suffix_col,
+                                        syn_spec=prm['member_letter_excitation_suffix'](len(suffix)))
+                        else:
+                            nest.Connect(letter_col, suffix_col,
+                                        syn_spec=prm['absent_letter_inhibition_suffix'](len(suffix)))
     nest.Connect(all_columns_cells(lexical_cols), lexical_inhibiting_population,
                  syn_spec=prm['lexical_inhibiting_pop_excitation'])
     nest.Connect(lexical_inhibiting_population, all_columns_cells(lexical_cols),
@@ -174,6 +212,16 @@ def simulate_reading(net_text_input):
                 continue
             if distance_within(word, word2, 2):
                 nest.Connect(word_col, word2_col, syn_spec=prm['lexical_lateral_inhibition'])
+    if prm['stems_and_suffixes']:
+        for (suffix, suffix_col) in suffixes_cols.items():
+            # Lateral inhibition for suffixes.
+            for (suffix2, suffix2_col) in  suffixes_cols.items():
+                if suffix != suffix2:
+                    nest.Connect(suffix_col, suffix2_col, syn_spec=prm['suffix_lateral_inhibition'])
+            # Suffix -> grapheme connections.
+            for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
+                # (weights will be assigned dynamically later)
+                nest.Connect(suffix_col, all_columns_cells(hypercol), syn_spec={ 'weight': 0.0 })
     # Lateral inhibition of graphemes containing at least one same letter
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         for (grapheme, col) in hypercol.items():
@@ -189,6 +237,9 @@ def simulate_reading(net_text_input):
     # Insert probes:
     for (word, word_col) in lexical_cols.items():
         insert_probe(word_col, word)
+    if prm['stems_and_suffixes']:
+        for (suffix, suffix_col) in suffixes_cols.items():
+            insert_probe(suffix_col, suffix)
     insert_probe(lexical_inhibiting_population, 'lexical_inhibition')
     ##for (letter, letter_col) in letter_hypercolumns[1].items():
     ##    insert_probe(letter_col, 'L2-'+letter)
@@ -197,6 +248,9 @@ def simulate_reading(net_text_input):
     # [Reading facility config:]
     spike_groups['Head'] = ['head-'+g for g in graphemes]
     spike_groups['Words'] = local_vocabulary
+    if prm['stems_and_suffixes']:
+        spike_groups['Suffixes'] = suffixes
+        spike_decisions['Stems'] = [ local_vocabulary ]
     spike_decisions['Reading'] = []
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         spike_decisions['Reading'].append([])
@@ -222,11 +276,32 @@ def simulate_reading(net_text_input):
 
         # Reassign the head -> grapheme weights (normal parametrized by time for each target hypercolumn).
         for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
-            weights_dist = stats.norm(loc=hcol_n+1, scale=1.0) # add one because of the first "dummy" step
+            weights_dist = stats.norm(loc=hcol_n+1, scale=1.0) # hcol_n is treated as time step number
+                                                               # (add one because of the first "dummy" step)
             nest.SetStatus( nest.GetConnections(all_columns_cells(reading_head),
                                                 all_columns_cells(hypercol)),
                             { 'weight' : weights_dist.pdf(nest.GetKernelStatus('time') / prm['letter_focus_time'])
                                          * prm['head_grapheme_base_weight'] })
+
+        # Reassign the suffix -> grapheme weights (depending on estimated stem end).
+        if prm['stems_and_suffixes']:#### and step_n > len(net_text_input)/2:
+            stem_end = mean([len(stem_reading[0]) for stem_reading in decide_spikes(spike_decisions['Stems'])[:15]])
+            print(stem_end)
+            for (suffix, suffix_col) in suffixes_cols.items():
+                suffix_decomposition = decompose_word(suffix)
+                for grapheme in set(suffix_decomposition):
+                    # Each occurence of a grapheme in suffix must exert is
+                    # influence individually, they are then summed.
+                    indices = [gi for (gi, g) in enumerate(suffix_decomposition) if g == grapheme]
+                    weight_dists = [stats.norm(loc=stem_end+ind, scale=3.0)
+                                     for ind in indices]
+                    if len(weight_dists) == 0:
+                        continue
+                    for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
+                        #print('stem_end', stem_end, 'hcol', hcol_n, weight_dists[0].pdf(hcol_n))
+                        nest.SetStatus( nest.GetConnections(suffix_col, hypercol[grapheme]),
+                                        { 'weight': sum( [dist.pdf(hcol_n) for dist in weight_dists] )
+                                                    * prm['suffix_grapheme_base_weight'] })
 
         nest.Simulate(prm['letter_focus_time'])
 
@@ -234,10 +309,10 @@ def word_read():
     if nest.GetKernelStatus('time') == 0.0:
         raise RuntimeError('calling word_read with no simulation state available')
 
-    word_decisions = decide_spikes(spike_decisions['Reading'])
+    word_decisions = decide_spikes(spike_decisions['Reading']) # get columns with their spike counts
     stop_boundary = prm['max_text_len']
     for dec_n in range(1, len(word_decisions)):
-        if word_decisions[dec_n][1] < 100:#word_decisions[dec_n-1][1] * 0.56:
+        if word_decisions[dec_n][1] < prm['decision_threshold']:#word_decisions[dec_n-1][1] * 0.56:
             stop_boundary = dec_n
             break
 
