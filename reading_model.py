@@ -55,23 +55,24 @@ prm = {
         'member_last_letter_excitation': { 'weight': 190.0 },
         'member_letter_excitation_weight': 540.0, # make them separate so they show up in readings printouts
         'absent_letter_inhibition_weight': -160.0,
-        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*14) }),
-        'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*3) }),
-        'member_letter_excitation_suffix': (lambda length: { 'weight': 10*prm['member_letter_excitation_weight'] / (length*4) }),
+        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*38) }),
+        'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*6) }),
+        'member_letter_excitation_suffix': (lambda length: { 'weight': 10*prm['member_letter_excitation_weight'] / (length*10) }),
         'absent_letter_inhibition_suffix': (lambda length: { 'weight': 10*prm['absent_letter_inhibition_weight'] / (length*4) }),
         'shorter_word_inhibition': { 'weight': -40.0 },
-        'lexical_grapheme_excitation': { 'weight': 450.0 },
+        'lexical_grapheme_excitation': { 'weight': 1000.0 },
         'lexical_inhibiting_pop_excitation': { 'weight': 650.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback': { 'weight': -300.0 },
-        'lexical_lateral_inhibition': { 'weight': -200.0 }, # of similar words
+        'lexical_lateral_inhibition': { 'weight': -50.0 }, # of similar words
         'suffix_lateral_inhibition': { 'weight': -1100.0 }, # of all other suffixes
         'letter_suffix_excitation': { 'weight': 600.0 },
-        'suffix_grapheme_base_weight': 7000.0, # parametrized by distance from the estimated stem end
+        'suffix_grapheme_base_weight': 24000.0, # parametrized by distance from the estimated stem end
         'grapheme_lateral_inhibition_weight': -25.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
-        'head_grapheme_base_weight': 1000.0,
+        'grapheme_lexical_feedback': { 'weight': 50.0 },
+        'head_grapheme_base_weight': 3000.0,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
@@ -206,6 +207,9 @@ def simulate_reading(net_text_input):
                 break
             nest.Connect(word_col, hypercol[word_decomposition[hcol_n]],
                          syn_spec=prm['lexical_grapheme_excitation'])
+            # Grapheme -> lexical feedback.
+            nest.Connect(hypercol[word_decomposition[hcol_n]], word_col,
+                         syn_spec=prm['grapheme_lexical_feedback'])
         # Lateral inhibition for similar words.
         for (word2, word2_col) in lexical_cols.items():
             if word2 == word:
@@ -222,9 +226,9 @@ def simulate_reading(net_text_input):
             for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
                 # (weights will be assigned dynamically later)
                 nest.Connect(suffix_col, all_columns_cells(hypercol), syn_spec={ 'weight': 0.0 })
-    # Lateral inhibition of graphemes containing at least one same letter
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         for (grapheme, col) in hypercol.items():
+            # Lateral inhibition of graphemes containing at least one same letter
             if hcol_n != 0:
                 for similar_grapheme in [g for g in graphemes if len(set(g).union(set(grapheme))) > 0]:
                     nest.Connect(col, grapheme_hypercolumns[hcol_n-1][similar_grapheme],
@@ -286,7 +290,6 @@ def simulate_reading(net_text_input):
         # Reassign the suffix -> grapheme weights (depending on estimated stem end).
         if prm['stems_and_suffixes']:#### and step_n > len(net_text_input)/2:
             stem_end = mean([len(stem_reading[0]) for stem_reading in decide_spikes(spike_decisions['Stems'])[:15]])
-            print(stem_end)
             for (suffix, suffix_col) in suffixes_cols.items():
                 suffix_decomposition = decompose_word(suffix)
                 for grapheme in set(suffix_decomposition):
