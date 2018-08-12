@@ -15,4 +15,4 @@ from reading_model import simulate_reading, save_readings, word_read
 
 simulate_reading(net_text_input)
 print(word_read())
-save_readings(word_simulation_name, skip_charts=True)
+save_readings(word_simulation_name, thorough=False)

@@ -9,11 +9,12 @@ probes = dict()
 def reset_reporting():
     probes.clear()
 
-def insert_probe(place, name):
+def insert_probe(place, name, always_chart=True):
     if name in probes:
         raise KeyError('probe name {} already in use'.format(name))
     probes[name] = { 'multimeter': nest.Create('multimeter', params=multimeter_params),
-                     'spikedet': nest.Create('spike_detector', params=spikedet_params) }
+                     'spikedet': nest.Create('spike_detector', params=spikedet_params),
+                     'always_chart': always_chart }
     nest.Connect(probes[name]['multimeter'], place)
     nest.Connect(place, probes[name]['spikedet'])
 
@@ -33,24 +34,25 @@ def decide_spikes(name_groups):
         decisions.append((group_probes[0][1], group_probes[0][0]))
     return decisions
 
-def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(), skip_charts=False):
+def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(), thorough=True):
     path += datetime.datetime.now().strftime('_%d-%m-%Y_%H-%M-%S')+'/' # add a timestamp
     os.makedirs(path, exist_ok=False) # throw an exception if exists
-    if not skip_charts:
-        for (name, probe) in probes.items():
-            multim_events = nest.GetStatus(probe['multimeter'], 'events')[0]
-            fig = pylab.figure()
-            pylab.plot(multim_events['times'], multim_events['V_m'])
-            pylab.ticklabel_format(useOffset=False, style='plain') # disable offsets and scientific notation
-            pylab.savefig(path+name+'_membrane_potential.png')
-            pylab.close(fig)
+    for (name, probe) in probes.items():
+        if not thorough and not probe['always_chart']:
+            continue
+        multim_events = nest.GetStatus(probe['multimeter'], 'events')[0]
+        fig = pylab.figure()
+        pylab.plot(multim_events['times'], multim_events['V_m'])
+        pylab.ticklabel_format(useOffset=False, style='plain') # disable offsets and scientific notation
+        pylab.savefig(path+name+'_membrane_potential.png')
+        pylab.close(fig)
 
-            spikedet_events = nest.GetStatus(probe['spikedet'], 'events')[0]
-            fig = pylab.figure()
-            pylab.plot(spikedet_events['times'], spikedet_events['senders'], '.')
-            pylab.ticklabel_format(useOffset=False, style='plain')
-            pylab.savefig(path+name+'_spikes.png')
-            pylab.close(fig)
+        spikedet_events = nest.GetStatus(probe['spikedet'], 'events')[0]
+        fig = pylab.figure()
+        pylab.plot(spikedet_events['times'], spikedet_events['senders'], '.')
+        pylab.ticklabel_format(useOffset=False, style='plain')
+        pylab.savefig(path+name+'_spikes.png')
+        pylab.close(fig)
 
     for (label, names) in spike_groups.items():
         with open(path+label+'_spike_scores.txt', 'w+') as spike_group_file:

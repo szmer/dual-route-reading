@@ -2,8 +2,8 @@ from scipy import stats
 from unidecode import unidecode
 from statistics import mean
 import nest
-from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 from levenshtein import distance_within
+from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 
 ###nest.set_verbosity('M_ERROR') # don't print detailed simulation info
 
@@ -61,14 +61,13 @@ prm = {
         'absent_letter_inhibition_suffix': (lambda length: { 'weight': 10*prm['absent_letter_inhibition_weight'] / (length*2) }),
         'shorter_word_inhibition': { 'weight': -40.0 },
         'lexical_grapheme_excitation': { 'weight': 1000.0 },
-        'lexical_inhibiting_pop_excitation': { 'weight': 1450.0 }, # this makes the strongest lexical matches relatively stronger
-        'lexical_inhibiting_pop_feedback_weight': -30.0,
+        'lexical_inhibiting_pop_excitation': { 'weight': 4500.0 }, # this makes the strongest lexical matches relatively stronger
+        'lexical_inhibiting_pop_feedback_weight': -700.0,
         'lexical_inhibiting_pop_feedback': lambda length: { 'weight': length*prm['lexical_inhibiting_pop_feedback_weight'] },
-        'lexical_lateral_inhibition': { 'weight': -50.0 }, # of similar words
+        'lexical_lateral_inhibition': { 'weight': -50.0 }, # of all other words
         'suffix_lateral_inhibition': { 'weight': -1100.0 }, # of all other suffixes
-        'letter_suffix_excitation': { 'weight': 600.0 },
         'suffix_grapheme_base_weight': 7000.0, # parametrized by distance from the estimated stem end
-        'grapheme_lateral_inhibition_weight': -25.0,
+        'grapheme_lateral_inhibition_weight': -30.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
@@ -215,7 +214,7 @@ def simulate_reading(net_text_input):
         for (word2, word2_col) in lexical_cols.items():
             if word2 == word:
                 continue
-            if distance_within(word, word2, 2):
+            else:
                 nest.Connect(word_col, word2_col, syn_spec=prm['lexical_lateral_inhibition'])
     if prm['stems_and_suffixes']:
         for (suffix, suffix_col) in suffixes_cols.items():
@@ -241,15 +240,15 @@ def simulate_reading(net_text_input):
 
     # Insert probes:
     for (word, word_col) in lexical_cols.items():
-        insert_probe(word_col, word)
+        insert_probe(word_col, word, always_chart=False)
     if prm['stems_and_suffixes']:
         for (suffix, suffix_col) in suffixes_cols.items():
-            insert_probe(suffix_col, suffix)
+            insert_probe(suffix_col, suffix, always_chart=False)
     insert_probe(lexical_inhibiting_population, 'lexical_inhibition')
     ##for (letter, letter_col) in letter_hypercolumns[1].items():
     ##    insert_probe(letter_col, 'L2-'+letter)
     for (grapheme, grapheme_col) in reading_head.items():
-        insert_probe(grapheme_col, 'head-'+grapheme)
+        insert_probe(grapheme_col, 'head-'+grapheme, always_chart=False)
     # [Reading facility config:]
     spike_groups['Head'] = ['head-'+g for g in graphemes]
     spike_groups['Words'] = local_vocabulary
@@ -260,7 +259,7 @@ def simulate_reading(net_text_input):
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         spike_decisions['Reading'].append([])
         for (grapheme, grapheme_col) in hypercol.items():
-            insert_probe(grapheme_col, 'g{}-{}'.format(hcol_n, grapheme))
+            insert_probe(grapheme_col, 'g{}-{}'.format(hcol_n, grapheme), always_chart=False)
             spike_decisions['Reading'][-1].append('g{}-{}'.format(hcol_n, grapheme))
 
     # Run the simulation, write readings.
@@ -323,9 +322,9 @@ def word_read():
 
     return ''.join([dec[0][dec[0].index('-')+1:] for dec in word_decisions[:stop_boundary]])
 
-def save_readings(simulation_name, skip_charts=False):
+def save_readings(simulation_name, thorough=True):
     write_readings(prm['readings_path']+simulation_name,
                    params=prm,
                    spike_groups=spike_groups,
                    spike_decisions=spike_decisions,
-                   skip_charts=skip_charts)
+                   thorough=thorough)
