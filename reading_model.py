@@ -1,8 +1,10 @@
+from itertools import chain
 from scipy import stats
 from unidecode import unidecode
 from statistics import mean
 import nest
 from levenshtein import distance_within
+from nltk.probability import FreqDist
 from neuro_reporting import reset_reporting, insert_probe, write_readings, decide_spikes
 
 ###nest.set_verbosity('M_ERROR') # don't print detailed simulation info
@@ -53,16 +55,16 @@ prm = {
         'letter_head_excitation': { 'weight': 300.0 },
         'member_first_letter_excitation': { 'weight': 190.0 },
         'member_last_letter_excitation': { 'weight': 190.0 },
-        'member_letter_excitation_weight': 1080.0, # make them separate so they show up in readings printouts
+        'member_letter_excitation_weight': 800.0, # make them separate so they show up in readings printouts
         'absent_letter_inhibition_weight': -940.0,
         'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*18) }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*9) }),
         'member_letter_excitation_suffix': (lambda length: { 'weight': 10*prm['member_letter_excitation_weight'] / (length*5) }),
         'absent_letter_inhibition_suffix': (lambda length: { 'weight': 10*prm['absent_letter_inhibition_weight'] / (length*2) }),
         'shorter_word_inhibition': { 'weight': -40.0 },
-        'lexical_grapheme_excitation': { 'weight': 1000.0 },
-        'lexical_inhibiting_pop_excitation': { 'weight': 4500.0 }, # this makes the strongest lexical matches relatively stronger
-        'lexical_inhibiting_pop_feedback_weight': -700.0,
+        'lexical_grapheme_base_excitation_weight': 200.0,
+        'lexical_inhibiting_pop_excitation': { 'weight': 9500.0 }, # this makes the strongest lexical matches relatively stronger
+        'lexical_inhibiting_pop_feedback_weight': -900.0,
         'lexical_inhibiting_pop_feedback': lambda length: { 'weight': length*prm['lexical_inhibiting_pop_feedback_weight'] },
         'lexical_lateral_inhibition': { 'weight': -50.0 }, # of all other words
         'suffix_lateral_inhibition': { 'weight': -1100.0 }, # of all other suffixes
@@ -71,8 +73,8 @@ prm = {
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
-        'grapheme_lexical_feedback': { 'weight': 25.0 },
-        'head_grapheme_base_weight': 3000.0,
+        'grapheme_lexical_feedback': { 'weight': 75.0 },
+        'head_grapheme_base_weight': 10500.0,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
@@ -128,7 +130,8 @@ def simulate_reading(net_text_input):
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
 
     local_vocabulary = [w for w in vocabulary[unidecode(net_text_input[0])]
-                        if distance_within(w, net_text_input, 4)]
+                        if distance_within(w, net_text_input, 4)] # NOTE we may compare only stems to the full input!
+    graphemes_dist = FreqDist(chain.from_iterable([decompose_word(w) for w in local_vocabulary]))
 
     lexical_cols = dict([(w, nest.Create(prm['neuron_type'], prm['lexical_column_size']))
                          for w in local_vocabulary])
@@ -206,7 +209,9 @@ def simulate_reading(net_text_input):
             if hcol_n == len(word_decomposition):
                 break
             nest.Connect(word_col, hypercol[word_decomposition[hcol_n]],
-                         syn_spec=prm['lexical_grapheme_excitation'])
+                         syn_spec={ 'weight': (prm['lexical_grapheme_base_excitation_weight']
+                                                # the excitation is stronger with rarer letters:
+                                                / graphemes_dist.freq(word_decomposition[hcol_n]))})
             # Grapheme -> lexical feedback.
             nest.Connect(hypercol[word_decomposition[hcol_n]], word_col,
                          syn_spec=prm['grapheme_lexical_feedback'])
@@ -243,7 +248,7 @@ def simulate_reading(net_text_input):
         insert_probe(word_col, word, always_chart=False)
     if prm['stems_and_suffixes']:
         for (suffix, suffix_col) in suffixes_cols.items():
-            insert_probe(suffix_col, suffix, always_chart=False)
+            insert_probe(suffix_col, 'suff_'+suffix, always_chart=False)
     insert_probe(lexical_inhibiting_population, 'lexical_inhibition')
     ##for (letter, letter_col) in letter_hypercolumns[1].items():
     ##    insert_probe(letter_col, 'L2-'+letter)
