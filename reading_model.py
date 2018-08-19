@@ -53,9 +53,9 @@ prm = {
         # Synapse specifications.
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
-        'member_first_letter_excitation': { 'weight': 190.0 },
+        'member_first_letter_excitation': { 'weight': 560.0 },
         'member_last_letter_excitation': { 'weight': 190.0 },
-        'member_letter_excitation_weight': 800.0, # make them separate so they show up in readings printouts
+        'member_letter_excitation_weight': 560.0, # make them separate so they show up in readings printouts
         'absent_letter_inhibition_weight': -940.0,
         'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*18) }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*9) }),
@@ -73,10 +73,12 @@ prm = {
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
-        'grapheme_lexical_feedback': { 'weight': 75.0 },
+        'grapheme_lexical_feedback': { 'weight': 35.0 },
         'head_grapheme_base_weight': 10500.0,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
+        'letter_lexical_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
+                                        'tau_fac': 800.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
         }
 
@@ -128,6 +130,7 @@ def simulate_reading(net_text_input):
     spike_decisions.clear()
 
     nest.CopyModel('tsodyks2_synapse', 'head_grapheme_synapse_model', prm['head_grapheme_synapse_model'])
+    nest.CopyModel('tsodyks2_synapse', 'letter_lexical_synapse_model', prm['letter_lexical_synapse_model'])
 
     local_vocabulary = [w for w in vocabulary[unidecode(net_text_input[0])]
                         if distance_within(w, net_text_input, 4)] # NOTE we may compare only stems to the full input!
@@ -173,14 +176,22 @@ def simulate_reading(net_text_input):
             else:
                 for (letter, letter_col) in hypercol.items():
                     if hcol_n == 0 and unidecode(word[hcol_n]) == unidecode(letter):
-                        nest.Connect(letter_col, word_col, syn_spec=prm['member_first_letter_excitation'])
+                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.SetStatus(nest.GetConnections(letter_col, word_col),
+                                       prm['member_first_letter_excitation'])
                     if (not prm['stems_and_suffixes']
                             and hcol_n == len(word)-1 and unidecode(word[len(word)-1]) == unidecode(letter)):
-                        nest.Connect(letter_col, word_col, syn_spec=prm['member_last_letter_excitation'])
+                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.SetStatus(nest.GetConnections(letter_col, word_col),
+                                       prm['member_last_letter_excitation'])
                     elif unidecode(letter) in unidecode(word):
-                        nest.Connect(letter_col, word_col, syn_spec=prm['member_letter_excitation'](len(word)))
+                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.SetStatus(nest.GetConnections(letter_col, word_col),
+                                       prm['member_letter_excitation'](len(word)))
                     else:
-                        nest.Connect(letter_col, word_col, syn_spec=prm['absent_letter_inhibition'](len(word)))
+                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.SetStatus(nest.GetConnections(letter_col, word_col),
+                                       prm['absent_letter_inhibition'](len(word)))
         # Letter hypercol -> suffixes units
         if prm['stems_and_suffixes']:
             for (suffix, suffix_col) in suffixes_cols.items():
