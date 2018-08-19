@@ -57,7 +57,7 @@ def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(
     for (label, names) in spike_groups.items():
         with open(path+label+'_spike_scores.txt', 'w+') as spike_group_file:
             contest_probes = score_spikes(names)
-            print('# '+label, file=spike_group_file)
+            print('# {} ({} registered)'.format(label, len(names)), file=spike_group_file)
             for (spike_count, name) in contest_probes:
                 print('{:>7} : {}'.format(spike_count, name), file=spike_group_file)
 

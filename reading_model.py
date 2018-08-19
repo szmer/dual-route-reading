@@ -45,24 +45,28 @@ prm = {
 
         'neuron_type': 'iaf_psc_alpha',
         'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
+        'letters_poisson_generator': { 'start': 0.0,
+                                       'stop': 99999.0,
+                                       'rate': 750.0 },
         'letter_column_size': 4,
         'head_column_size': 12,
         'grapheme_column_size': 8,
         'lexical_column_size': 1,
         'lexical_inhibiting_pop_size': 10,
         # Synapse specifications.
+        'poisson_letter_excitation': { 'weight': 1000.0 },
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
-        'member_first_letter_excitation': { 'weight': 560.0 },
+        'member_first_letter_excitation': { 'weight': 5660.0 },
         'member_last_letter_excitation': { 'weight': 190.0 },
-        'member_letter_excitation_weight': 560.0, # make them separate so they show up in readings printouts
-        'absent_letter_inhibition_weight': -940.0,
-        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*18) }),
-        'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*9) }),
-        'member_letter_excitation_suffix': (lambda length: { 'weight': 10*prm['member_letter_excitation_weight'] / (length*5) }),
-        'absent_letter_inhibition_suffix': (lambda length: { 'weight': 10*prm['absent_letter_inhibition_weight'] / (length*2) }),
+        'member_letter_excitation_weight': 5360.0, # make them separate so they show up in readings printouts
+        'absent_letter_inhibition_weight': -1140.0,
+        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
+        'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / length }),
+        'member_letter_excitation_suffix': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*5) / 6 }),
+        'absent_letter_inhibition_suffix': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*2) / 6 }),
         'shorter_word_inhibition': { 'weight': -40.0 },
-        'lexical_grapheme_base_excitation_weight': 200.0,
+        'lexical_grapheme_base_excitation_weight': 3600.0,
         'lexical_inhibiting_pop_excitation': { 'weight': 9500.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback_weight': -900.0,
         'lexical_inhibiting_pop_feedback': lambda length: { 'weight': length*prm['lexical_inhibiting_pop_feedback_weight'] },
@@ -73,12 +77,12 @@ prm = {
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
         'grapheme_length_damping': 0.8,
-        'grapheme_lexical_feedback': { 'weight': 35.0 },
-        'head_grapheme_base_weight': 10500.0,
+        'grapheme_lexical_feedback': { 'weight': 5.0 },
+        'head_grapheme_base_weight': 4500.0,
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
-        'letter_lexical_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
-                                        'tau_fac': 800.0 },
+        'letter_lexical_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 100.0,
+                                        'tau_fac': 1000.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
         }
 
@@ -158,7 +162,9 @@ def simulate_reading(net_text_input):
     for (hcol_n, hypercol) in enumerate(letter_hypercolumns): # hypercol is: letter -> (neuron's nest id)
         # Turn on appropriate letter columns.
         if hcol_n < len(net_text_input) and net_text_input[hcol_n] in letters:
-            nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
+            poisson_gen = nest.Create('poisson_generator', 1, prm['letters_poisson_generator'])
+            nest.Connect(poisson_gen, hypercol[net_text_input[hcol_n]], syn_spec=prm['poisson_letter_excitation'])
+            ###nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
 
         # Letter hypercol's lateral inhibition to subsequent hypercols
         for hypercol2 in letter_hypercolumns[hcol_n+1:]:
@@ -269,7 +275,7 @@ def simulate_reading(net_text_input):
     spike_groups['Head'] = ['head-'+g for g in graphemes]
     spike_groups['Words'] = local_vocabulary
     if prm['stems_and_suffixes']:
-        spike_groups['Suffixes'] = suffixes
+        spike_groups['Suffixes'] = ['suff_'+suff for suff in suffixes]
         spike_decisions['Stems'] = [ local_vocabulary ]
     spike_decisions['Reading'] = []
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
