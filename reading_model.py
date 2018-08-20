@@ -38,7 +38,7 @@ def all_columns_cells(hypercol):
 prm = {
         'max_text_len': 12,
         'letter_focus_time': 50.0,
-        'decision_threshold': 100.0,
+        'decision_threshold': 150.0,
         'readings_path': 'readings/',
         'language_data_path': './pol/',
         'stems_and_suffixes': True,
@@ -57,11 +57,11 @@ prm = {
         'poisson_letter_excitation': { 'weight': 1000.0 },
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
-        'member_first_letter_excitation': { 'weight': 5660.0 },
+        'member_first_letter_excitation': { 'weight': 3500.0 },
         'member_last_letter_excitation': { 'weight': 190.0 },
-        'member_letter_excitation_weight': 5360.0, # make them separate so they show up in readings printouts
+        'member_letter_excitation_weight': 10000.0, # make them separate so they show up in readings printouts
         'absent_letter_inhibition_weight': -1140.0,
-        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / length }),
+        'member_letter_excitation': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length * 6) }),
         'absent_letter_inhibition': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / length }),
         'member_letter_excitation_suffix': (lambda length: { 'weight': prm['member_letter_excitation_weight'] / (length*5) / 6 }),
         'absent_letter_inhibition_suffix': (lambda length: { 'weight': prm['absent_letter_inhibition_weight'] / (length*2) / 6 }),
@@ -70,9 +70,9 @@ prm = {
         'lexical_inhibiting_pop_excitation': { 'weight': 9500.0 }, # this makes the strongest lexical matches relatively stronger
         'lexical_inhibiting_pop_feedback_weight': -900.0,
         'lexical_inhibiting_pop_feedback': lambda length: { 'weight': length*prm['lexical_inhibiting_pop_feedback_weight'] },
-        'lexical_lateral_inhibition': { 'weight': -50.0 }, # of all other words
+        'lexical_lateral_inhibition': { 'weight': -50.0 }, # of similar words
         'suffix_lateral_inhibition': { 'weight': -1100.0 }, # of all other suffixes
-        'suffix_grapheme_base_weight': 7000.0, # parametrized by distance from the estimated stem end
+        'suffix_grapheme_base_weight': 4000.0, # parametrized by distance from the estimated stem end
         'grapheme_lateral_inhibition_weight': -30.0,
         'grapheme_lateral_inhibition': (lambda length: { 'weight': prm['grapheme_lateral_inhibition_weight'] * length }),
         # weights letter -> head are divided by (1 + (target_grapheme_len-1)*this)
@@ -82,7 +82,7 @@ prm = {
         'head_grapheme_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 50.0,
                                         'tau_fac': 0.0 },
         'letter_lexical_synapse_model': { 'U': 0.67, 'u': 0.67, 'x': 1.0, 'tau_rec': 100.0,
-                                        'tau_fac': 1000.0 },
+                                        'tau_fac': 1500.0 },
         # (the _model part in name is meant to mark that we register a separate synampse 'type')
         }
 
@@ -236,7 +236,7 @@ def simulate_reading(net_text_input):
         for (word2, word2_col) in lexical_cols.items():
             if word2 == word:
                 continue
-            else:
+            elif distance_within(word, word2, 4):
                 nest.Connect(word_col, word2_col, syn_spec=prm['lexical_lateral_inhibition'])
     if prm['stems_and_suffixes']:
         for (suffix, suffix_col) in suffixes_cols.items():
@@ -306,7 +306,7 @@ def simulate_reading(net_text_input):
                                                                # (add one because of the first "dummy" step)
             nest.SetStatus( nest.GetConnections(all_columns_cells(reading_head),
                                                 all_columns_cells(hypercol)),
-                            { 'weight' : weights_dist.pdf(nest.GetKernelStatus('time') / prm['letter_focus_time'])
+                            { 'weight' : weights_dist.pdf(1.0 + nest.GetKernelStatus('time') / prm['letter_focus_time'])
                                          * prm['head_grapheme_base_weight'] })
 
         # Reassign the suffix -> grapheme weights (depending on estimated stem end).
