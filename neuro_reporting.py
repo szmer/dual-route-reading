@@ -18,15 +18,18 @@ def insert_probe(place, name, always_chart=True):
     nest.Connect(probes[name]['multimeter'], place)
     nest.Connect(place, probes[name]['spikedet'])
 
-def score_spikes(names):
+def score_spikes(names, start_time, end_time):
     "Return a sorted list of (spike counts, names) for a list of names registered for reporting."
-    contest_probes = [(len(nest.GetStatus(probe['spikedet'], 'events')[0]['times']), name)
-                      for (name, probe) in probes.items()
-                      if name in names]
+    contest_probes = []
+    for (name, probe) in probes.items():
+        if name in names:
+            times = [t for t in nest.GetStatus(probe['spikedet'], 'events')[0]['times']
+                     if t >= start_time and t <= end_time]
+            contest_probes.append((len(times), name))
     contest_probes.sort(key=lambda x: x[0], reverse=True)
     return contest_probes
 
-def decide_spikes(name_groups):
+def decide_spikes(name_groups, start_time, end_time):
     "Given a list of lists of names registered for reporting, for each list (group) return a list of pairs (name, spike count) with most spikes."
     decisions = []
     for group in name_groups:
@@ -34,7 +37,7 @@ def decide_spikes(name_groups):
         decisions.append((group_probes[0][1], group_probes[0][0]))
     return decisions
 
-def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(), thorough=True):
+def write_readings(path, start_time, end_time, params=None, spike_groups=dict(), spike_decisions=dict(), thorough=True):
     path += datetime.datetime.now().strftime('_%d-%m-%Y_%H-%M-%S')+'/' # add a timestamp
     os.makedirs(path, exist_ok=False) # throw an exception if exists
     for (name, probe) in probes.items():
@@ -63,7 +66,7 @@ def write_readings(path, params=None, spike_groups=dict(), spike_decisions=dict(
 
     for (label, groups) in spike_decisions.items():
         with open(path+label+'_spike_decision.txt', 'w+') as spike_decision_file:
-            decisions = decide_spikes(groups)
+            decisions = decide_spikes(groups, start_time, end_time)
             for dec in decisions:
                 print(dec[1], dec[0], file=spike_decision_file)
 
