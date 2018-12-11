@@ -48,9 +48,11 @@ prm = {
 
         'neuron_type': 'iaf_psc_alpha',
         'synapse_default': { 'model': 'stdp_synapse', 'alpha': 1.0 }, # default configuration for the network
-        'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
         'letters_poisson_generator': { 'start': 0.0,
-                                       'stop': 99999.0,
+                                       'stop': float('inf'),
+                                       'rate': 750.0 },
+        'forcing_poisson_generator': { 'start': 0.0,
+                                       'stop': float('inf'),
                                        'rate': 750.0 },
         'letter_column_size': 4,
         'head_column_size': 12,
@@ -59,6 +61,9 @@ prm = {
         'lexical_inhibiting_pop_size': 10,
         # Synapse specifications.
         'poisson_letter_excitation': { 'weight': 1000.0 },
+        'poisson_letter_null': { 'weight': 0.0 }, # when the letter is turned off
+        'poisson_forcing_excitation': { 'weight': 1000.0 },
+        'poisson_forcing_null': { 'weight': 0.0 },
         'letter_col_lateral_inhibition': { 'weight': -100.0 },
         'letter_head_excitation': { 'weight': 300.0 },
         'member_first_letter_excitation': { 'weight': 3500.0 },
@@ -129,14 +134,16 @@ class DrcNetwork():
         self.grapheme_hypercolumns = [make_hypercolumn(self.graphemes, prm['grapheme_column_size'])
                                  for i in range(self.max_text_len)]
 
+        input_poisson_gens = dict([('{}-{}'.format(pos, let),
+                                    nest.Create('poisson_generator', 1, prm['letters_poisson_generator']))
+                                   for let in self.letters for pos in range(self.max_text_len)])
+
         # Make connections.
         ###self.end_weight_dist = stats.norm(loc=len(net_text_input), scale=3.0) # for exciting suffixes
         for (hcol_n, hypercol) in enumerate(self.letter_hypercolumns): # hypercol is: letter -> (neuron's nest id)
-            # Turn on appropriate letter columns.
-            if hcol_n < len(net_text_input) and net_text_input[hcol_n] in self.letters:
-                poisson_gen = nest.Create('poisson_generator', 1, prm['letters_poisson_generator'])
-                nest.Connect(poisson_gen, hypercol[net_text_input[hcol_n]], syn_spec=syn_config(prm['poisson_letter_excitation']))
-                ###nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
+            for let in self.letters: # set up connections to the the generators, the weights will be set while simulating
+                poisson_gen = self.input_poisson_gens['{}-{}'.format(hcol_n, let)]
+                nest.Connect(poisson_gen, hypercol[let])
 
             # Letter hypercol's lateral inhibition to subsequent hypercols
             for hypercol2 in self.letter_hypercolumns[hcol_n+1:]:
@@ -232,6 +239,9 @@ class DrcNetwork():
                         nest.Connect(col, self.grapheme_hypercolumns[hcol_n+1][similar_grapheme],
                                      syn_spec=syn_config(prm['grapheme_lateral_inhibition'](len(similar_grapheme))))
 
+        self.forcing_poisson_gens = False
+        self.recently_forced = False
+
    def setup_reporting(self):
         # Re-setup reporting.
         reset_reporting()
@@ -262,12 +272,51 @@ class DrcNetwork():
                 insert_probe(grapheme_col, 'g{}-{}'.format(hcol_n, grapheme), always_chart=False)
                 spike_decisions['Reading'][-1].append('g{}-{}'.format(hcol_n, grapheme))
 
-    def simulate_reading(self, net_text_input):
+    def enable_teacher_forcing(self):
+        """This is called automatically by `simulate_reading` when forcing is requested."""
+        self.forcing_poisson_gens = dict([('{}-{}'.format(pos, gph),
+                                    nest.Create('poisson_generator', 1, prm['forcing_poisson_generator']))
+                                   for gph in self.graphemes for pos in range(self.max_text_len)])
+        for (hcol_n, hypercol) in enumerate(self.grapheme_hypercolumns):
+            for (grapheme, col) in hypercol.items(): # set up connections to the the generators, the weights will be set while simulating
+                nest.Connect(self.forcing_poisson_gens['{}-{}'.format(hcol_n, grapheme)], col)
+
+    def simulate_reading(self, net_text_input, teacher_forcing=False):
        """Returns the time when the reading simulation ended for this input."""
         if len(net_text_input) > self.max_text_len:
             raise ValueError('Text input {} has to be shorter than max_text_len: {}'.format(net_text_input, self.max_text_len))
 
         start_time = nest.GetKernelStatus('time')
+
+        # Turn on appropriate letter columns.
+        for (hcol_n, hypercol) in enumerate(self.letter_hypercolumns): # hypercol is: letter -> (neuron's nest id)
+            for let in self.letters:
+                poisson_gen = self.input_poisson_gens['{}-{}'.format(hcol_n, let)]
+                if hcol_n < len(net_text_input) and net_text_input[hcol_n] == let:
+                    nest.SetStatus(nest.GetConnections(poisson_gen, hypercol[let]), syn_config(prm['poisson_letter_excitation']))
+                else:
+                    nest.SetStatus(nest.GetConnections(poisson_gen, hypercol[let]), syn_config(prm['poisson_letter_null']))
+
+        # Handling teacher forcing.
+        if teacher_forcing:
+            if not self.forcing_poisson_gens:
+                self.enable_teacher_forcing()
+            self.recently_forced = True
+            word_graphemes = decompose_word(net_text_input)
+            for (hcol_n, hypercol) in enumerate(self.grapheme_hypercolumns):
+                for (grapheme, col) in hypercol.items(): # set up connections to the the generators, the weights will be set while simulating
+                    poisson_gen = self.forcing_poisson_gens['{}-{}'.format(hcol_n, grapheme)]
+                    if hcol_n < len(word_graphemes) and grapheme == word_graphemes[hcol_n]:
+                        nest.SetStatus(nest.GetConnections(poisson_gen, col), syn_config(prm['poisson_forcing_excitation'))
+                    else:
+                        nest.SetStatus(nest.GetConnections(poisson_gen, col), syn_config(prm['poisson_forcing_null'))
+        else:
+            if self.recently_forced:
+                for (hcol_n, hypercol) in enumerate(self.grapheme_hypercolumns):
+                    for (grapheme, col) in hypercol.items(): # set up connections to the the generators, the weights will be set while simulating
+                        nest.SetStatus(nest.GetConnections(self.forcing_poisson_gens['{}-{}'.format(hcol_n, grapheme)], col),
+                                       syn_config(prm['poisson_forcing_null'))
+            self.recently_forced = False
 
         nest.Simulate(prm['letter_focus_time'])
         for step_n in range(self.max_text_len):
