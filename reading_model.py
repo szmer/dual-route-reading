@@ -2,6 +2,7 @@ from itertools import chain
 from scipy import stats
 from unidecode import unidecode
 from statistics import mean
+from collections import ChainMap
 import nest
 from levenshtein import distance_within
 from nltk.probability import FreqDist
@@ -34,6 +35,11 @@ def make_hypercolumn(stimuli_set, column_size):
 def all_columns_cells(hypercol):
     return sum([list(col) for (label, col) in hypercol.items()], [])
 
+def syn_config(param, *args):
+    if not args:
+        return ChainMap(param, prm['synapse_default'])
+    return ChainMap(param(*args), prm['synapse_default'])
+
 # Global config.
 prm = {
         'max_text_len': 12,
@@ -44,6 +50,7 @@ prm = {
         'stems_and_suffixes': True,
 
         'neuron_type': 'iaf_psc_alpha',
+        'synapse_default': { 'model': 'stdp_synapse', 'alpha': 1.0 }, # default configuration for the network
         'letter_neuron_params_on': { 'I_e': 900.0 }, # constant input current in pA
         'letters_poisson_generator': { 'start': 0.0,
                                        'stop': 99999.0,
@@ -163,39 +170,39 @@ def simulate_reading(net_text_input):
         # Turn on appropriate letter columns.
         if hcol_n < len(net_text_input) and net_text_input[hcol_n] in letters:
             poisson_gen = nest.Create('poisson_generator', 1, prm['letters_poisson_generator'])
-            nest.Connect(poisson_gen, hypercol[net_text_input[hcol_n]], syn_spec=prm['poisson_letter_excitation'])
+            nest.Connect(poisson_gen, hypercol[net_text_input[hcol_n]], syn_spec=syn_config(prm['poisson_letter_excitation']))
             ###nest.SetStatus(hypercol[net_text_input[hcol_n]], prm['letter_neuron_params_on'])
 
         # Letter hypercol's lateral inhibition to subsequent hypercols
         for hypercol2 in letter_hypercolumns[hcol_n+1:]:
             nest.Connect(all_columns_cells(hypercol), all_columns_cells(hypercol2),
-                         syn_spec=prm['letter_col_lateral_inhibition'])
+                         syn_spec=syn_config(prm['letter_col_lateral_inhibition']))
         # Letter hypercol -> the reading head
         for (letter, letter_col) in hypercol.items():
             for (grapheme, grapheme_col) in reading_head.items():
                 if letter in grapheme:
-                    nest.Connect(letter_col, grapheme_col, syn_spec=prm['letter_head_excitation'])
+                    nest.Connect(letter_col, grapheme_col, syn_spec=syn_config(prm['letter_head_excitation']))
         # Letter hypercol -> lexical units
         for (word, word_col) in lexical_cols.items():
             if hcol_n >= len(word):
-                nest.Connect(all_columns_cells(hypercol), word_col, syn_spec=prm['shorter_word_inhibition'])
+                nest.Connect(all_columns_cells(hypercol), word_col, syn_spec=syn_config(prm['shorter_word_inhibition']))
             else:
                 for (letter, letter_col) in hypercol.items():
                     if hcol_n == 0 and unidecode(word[hcol_n]) == unidecode(letter):
-                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.Connect(letter_col, word_col, syn_spec=syn_config('letter_lexical_synapse_model'))
                         nest.SetStatus(nest.GetConnections(letter_col, word_col),
                                        prm['member_first_letter_excitation'])
                     if (not prm['stems_and_suffixes']
                             and hcol_n == len(word)-1 and unidecode(word[len(word)-1]) == unidecode(letter)):
-                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.Connect(letter_col, word_col, syn_spec=syn_config('letter_lexical_synapse_model'))
                         nest.SetStatus(nest.GetConnections(letter_col, word_col),
                                        prm['member_last_letter_excitation'])
                     elif unidecode(letter) in unidecode(word):
-                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.Connect(letter_col, word_col, syn_spec=syn_config('letter_lexical_synapse_model'))
                         nest.SetStatus(nest.GetConnections(letter_col, word_col),
                                        prm['member_letter_excitation'](len(word)))
                     else:
-                        nest.Connect(letter_col, word_col, syn_spec='letter_lexical_synapse_model')
+                        nest.Connect(letter_col, word_col, syn_spec=syn_config('letter_lexical_synapse_model'))
                         nest.SetStatus(nest.GetConnections(letter_col, word_col),
                                        prm['absent_letter_inhibition'](len(word)))
         # Letter hypercol -> suffixes units
@@ -205,60 +212,60 @@ def simulate_reading(net_text_input):
                     for (letter, letter_col) in hypercol.items():
                         if letter in suffix:
                             nest.Connect(letter_col, suffix_col,
-                                        syn_spec=prm['member_letter_excitation_suffix'](len(suffix)))
+                                        syn_spec=syn_config(prm['member_letter_excitation_suffix'](len(suffix))))
                         else:
                             nest.Connect(letter_col, suffix_col,
-                                        syn_spec=prm['absent_letter_inhibition_suffix'](len(suffix)))
+                                        syn_spec=syn_config(prm['absent_letter_inhibition_suffix'](len(suffix))))
     for (grapheme, grapheme_col) in reading_head.items():
         nest.Connect(grapheme_col,
                      sum([list(neurs)
                           for hypercol in grapheme_hypercolumns
                           for (label, neurs) in hypercol.items()
                           if label == grapheme], []),
-                     syn_spec='head_grapheme_synapse_model')
+                     syn_spec=syn_config('head_grapheme_synapse_model'))
     nest.Connect(all_columns_cells(lexical_cols), lexical_inhibiting_population,
-                 syn_spec=prm['lexical_inhibiting_pop_excitation'])
+                 syn_spec=syn_config(prm['lexical_inhibiting_pop_excitation']))
     for (word, word_col) in lexical_cols.items():
         nest.Connect(lexical_inhibiting_population, word_col,
-                    syn_spec=prm['lexical_inhibiting_pop_feedback'](len(word)))
+                    syn_spec=syn_config(prm['lexical_inhibiting_pop_feedback'](len(word))))
         word_decomposition = decompose_word(word)
         for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
             if hcol_n == len(word_decomposition):
                 break
             nest.Connect(word_col, hypercol[word_decomposition[hcol_n]],
-                         syn_spec={ 'weight': (prm['lexical_grapheme_base_excitation_weight']
+                         syn_spec=syn_config({ 'weight': (prm['lexical_grapheme_base_excitation_weight']
                                                 # the excitation is stronger with rarer letters:
-                                                / graphemes_dist.freq(word_decomposition[hcol_n]))})
+                                                / graphemes_dist.freq(word_decomposition[hcol_n]))}))
             # Grapheme -> lexical feedback.
             nest.Connect(hypercol[word_decomposition[hcol_n]], word_col,
-                         syn_spec=prm['grapheme_lexical_feedback'])
+                         syn_spec=syn_config(prm['grapheme_lexical_feedback']))
         # Lateral inhibition for similar words.
         for (word2, word2_col) in lexical_cols.items():
             if word2 == word:
                 continue
             elif distance_within(word, word2, 4):
-                nest.Connect(word_col, word2_col, syn_spec=prm['lexical_lateral_inhibition'])
+                nest.Connect(word_col, word2_col, syn_spec=syn_config(prm['lexical_lateral_inhibition']))
     if prm['stems_and_suffixes']:
         for (suffix, suffix_col) in suffixes_cols.items():
             # Lateral inhibition for suffixes.
             for (suffix2, suffix2_col) in  suffixes_cols.items():
                 if suffix != suffix2:
-                    nest.Connect(suffix_col, suffix2_col, syn_spec=prm['suffix_lateral_inhibition'])
+                    nest.Connect(suffix_col, suffix2_col, syn_spec=syn_config(prm['suffix_lateral_inhibition']))
             # Suffix -> grapheme connections.
             for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
                 # (weights will be assigned dynamically later)
-                nest.Connect(suffix_col, all_columns_cells(hypercol), syn_spec={ 'weight': 0.0 })
+                nest.Connect(suffix_col, all_columns_cells(hypercol), syn_spec=syn_config({ 'weight': 0.0 }))
     for (hcol_n, hypercol) in enumerate(grapheme_hypercolumns):
         for (grapheme, col) in hypercol.items():
             # Lateral inhibition of graphemes containing at least one same letter
             if hcol_n != 0:
                 for similar_grapheme in [g for g in graphemes if len(set(g).union(set(grapheme))) > 0]:
                     nest.Connect(col, grapheme_hypercolumns[hcol_n-1][similar_grapheme],
-                                 syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
+                                 syn_spec=syn_config(prm['grapheme_lateral_inhibition'](len(similar_grapheme))))
             if hcol_n+1 != prm['max_text_len']:
                 for similar_grapheme in [g for g in graphemes if len(set(g).union(set(grapheme))) > 0]:
                     nest.Connect(col, grapheme_hypercolumns[hcol_n+1][similar_grapheme],
-                                 syn_spec=prm['grapheme_lateral_inhibition'](len(similar_grapheme)))
+                                 syn_spec=syn_config(prm['grapheme_lateral_inhibition'](len(similar_grapheme))))
 
     # Insert probes:
     for (word, word_col) in lexical_cols.items():
